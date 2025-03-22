@@ -1,0 +1,21 @@
+[package]
+name = "thrift-ls"
+version = "0.1.0"
+authors = ["ocfbnj"]
+edition = "2021"
+description = "A language server for Thrift."
+readme = "README.md"
+repository = "https://github.com/ocfbnj/thrift-ls"
+license = "MIT"
+keywords = ["thrift", "language-server"]
+
+[lib]
+name = "thrift_ls"
+path = "lib/mod.rs"
+
+[[bin]]
+name = "thrift-ls"
+path = "src/main.rs"
+
+[dependencies]
+phf = { version = "0.11", features = ["macros"] }
