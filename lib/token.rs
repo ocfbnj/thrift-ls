@@ -1,3 +1,4 @@
+use std::fmt;
 use std::path::PathBuf;
 
 #[derive(PartialEq, Debug)]
@@ -46,7 +47,13 @@ pub struct Location {
     pub column: usize,
 }
 
-#[derive(PartialEq, Debug)]
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}:{}", self.path.display(), self.line, self.column)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // keywords
     Include,    // include
@@ -64,6 +71,7 @@ pub enum TokenKind {
     Oneway,     // oneway
     Void,       // void
     Throws,     // throws
+    Extends,    // extends
 
     // types
     Map,     // map
@@ -125,6 +133,7 @@ impl TokenKind {
             "oneway" => TokenKind::Oneway,
             "void" => TokenKind::Void,
             "throws" => TokenKind::Throws,
+            "extends" => TokenKind::Extends,
             "map" => TokenKind::Map,
             "set" => TokenKind::Set,
             "list" => TokenKind::List,

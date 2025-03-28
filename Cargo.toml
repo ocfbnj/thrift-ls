@@ -18,4 +18,3 @@ name = "thrift-ls"
 path = "src/main.rs"
 
 [dependencies]
-phf = { version = "0.11", features = ["macros"] }

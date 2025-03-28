@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::token::{self, TokenKind};
+use crate::token::{self, Location, TokenKind};
 
 pub struct Scanner {
     input: Vec<char>,    // input data
@@ -50,6 +50,28 @@ impl Input for FileInput {
 
     fn path(&self) -> PathBuf {
         self.path.clone()
+    }
+}
+
+pub struct StringInput {
+    data: String,
+}
+
+impl StringInput {
+    pub fn new(data: &str) -> Self {
+        StringInput {
+            data: data.to_string(),
+        }
+    }
+}
+
+impl Input for StringInput {
+    fn data(&self) -> Vec<char> {
+        self.data.chars().collect()
+    }
+
+    fn path(&self) -> PathBuf {
+        PathBuf::from("<string>")
     }
 }
 
@@ -319,6 +341,14 @@ impl Scanner {
     pub fn restore_state(&mut self, state: ScannerState) {
         self.state = state;
     }
+
+    pub fn cur_location(&self) -> Location {
+        Location {
+            line: self.state.line,
+            column: self.state.column,
+            path: self.path.clone(),
+        }
+    }
 }
 
 impl Scanner {
@@ -555,6 +585,29 @@ impl Scanner {
 
         (offset, line_offset, column_offset, true)
     }
+
+    /// 跳过当前行的所有内容，直接移动到下一行的开始位置
+    pub fn skip_to_next_line(&mut self) {
+        while self.state.offset < self.input.len() {
+            let ch = self.input[self.state.offset] as char;
+            self.state.offset += 1;
+
+            if ch == '\n' {
+                self.state.line += 1;
+                self.state.column = 1;
+                break;
+            } else if ch == '\r' {
+                if self.state.offset < self.input.len()
+                    && self.input[self.state.offset] as char == '\n'
+                {
+                    self.state.offset += 1;
+                }
+                self.state.line += 1;
+                self.state.column = 1;
+                break;
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -564,7 +617,7 @@ mod tests {
     #[test]
     fn test_scan() {
         let work_path = std::env::current_dir().unwrap();
-        let file_path = work_path.join(std::path::Path::new("./lib/test_file/user.thrift"));
+        let file_path = work_path.join(std::path::Path::new("./lib/test_file/ThriftTest.thrift"));
         let mut scanner = Scanner::new(FileInput::new(&file_path));
 
         loop {

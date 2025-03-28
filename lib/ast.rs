@@ -1,90 +1,131 @@
-use core::fmt;
+use std::fmt;
 
 pub trait Node: fmt::Debug {}
 impl<T> Node for T where T: fmt::Debug {}
 
 #[derive(Debug)]
 pub struct DocumentNode {
-    pub(crate) headers: Vec<Box<dyn Node>>,
-    pub(crate) definitions: Vec<Box<dyn Node>>,
+    pub headers: Vec<Box<dyn Node>>,
+    pub definitions: Vec<Box<dyn Node>>,
 }
 
+#[derive(Debug)]
 pub struct HeaderNode {}
 
 #[derive(Debug)]
 pub struct IncludeNode {
-    pub(crate) literal: String,
+    pub literal: String,
 }
 
 #[derive(Debug)]
 pub struct CppIncludeNode {
-    pub(crate) literal: String,
+    pub literal: String,
 }
 
 #[derive(Debug)]
 pub struct NamespaceNode {
-    pub(crate) name: String,
-    pub(crate) scope: String,
+    pub name: String,
+    pub scope: String,
 }
 
 #[derive(Debug)]
 pub struct ConstNode {
-    pub(crate) field_type: Box<dyn Node>,
-    pub(crate) name: String,
-    pub(crate) value: Box<dyn Node>,
+    pub field_type: Box<dyn Node>,
+    pub name: String,
+    pub value: Box<dyn Node>,
 }
 
 #[derive(Debug)]
 pub struct IdentifierNode {
-    pub(crate) name: String,
+    pub name: String,
 }
 
 #[derive(Debug)]
 pub struct BaseTypeNode {
-    pub(crate) name: String,
+    pub name: String,
 }
 
 #[derive(Debug)]
 pub struct MapTypeNode {
-    pub(crate) cpp_type: Option<String>,
-    pub(crate) key_type: Box<dyn Node>,
-    pub(crate) value_type: Box<dyn Node>,
+    pub cpp_type: Option<String>,
+    pub key_type: Box<dyn Node>,
+    pub value_type: Box<dyn Node>,
 }
 
 #[derive(Debug)]
 pub struct SetTypeNode {
-    pub(crate) cpp_type: Option<String>,
-    pub(crate) type_node: Box<dyn Node>,
+    pub cpp_type: Option<String>,
+    pub type_node: Box<dyn Node>,
 }
 
 #[derive(Debug)]
 pub struct ListTypeNode {
-    pub(crate) cpp_type: Option<String>,
-    pub(crate) type_node: Box<dyn Node>,
+    pub cpp_type: Option<String>,
+    pub type_node: Box<dyn Node>,
 }
 
 #[derive(Debug)]
 pub struct ConstValueNode {
-    pub(crate) value: String,
+    pub value: String,
 }
 
 #[derive(Debug)]
 pub struct TypedefNode {
-    pub(crate) definition_type: Box<dyn Node>,
-    pub(crate) name: String,
+    pub definition_type: Box<dyn Node>,
+    pub name: String,
 }
 
 #[derive(Debug)]
-pub struct EnumNode {}
+pub struct EnumNode {
+    pub name: String,
+    pub values: Vec<EnumValueNode>,
+}
 
 #[derive(Debug)]
-pub struct StructNode {}
+pub struct EnumValueNode {
+    pub name: String,
+    pub value: Option<i32>,
+}
 
 #[derive(Debug)]
-pub struct UnionNode {}
+pub struct StructNode {
+    pub name: String,
+    pub fields: Vec<FieldNode>,
+}
 
 #[derive(Debug)]
-pub struct ExceptionNode {}
+pub struct FieldNode {
+    pub field_id: Option<i32>,
+    pub field_req: Option<String>,
+    pub field_type: Box<dyn Node>,
+    pub name: String,
+    pub default_value: Option<ConstValueNode>,
+}
 
 #[derive(Debug)]
-pub struct ServiceNode {}
+pub struct UnionNode {
+    pub name: String,
+    pub fields: Vec<FieldNode>,
+}
+
+#[derive(Debug)]
+pub struct ExceptionNode {
+    pub name: String,
+    pub fields: Vec<FieldNode>,
+}
+
+#[derive(Debug)]
+pub struct ServiceNode {
+    pub name: String,
+    pub extends: Option<String>,
+    pub functions: Vec<FunctionNode>,
+}
+
+#[derive(Debug)]
+pub struct FunctionNode {
+    pub is_oneway: bool,
+    pub return_type: Box<dyn Node>,
+    pub name: String,
+    pub parameters: Vec<FieldNode>,
+    pub throws: Option<Vec<FieldNode>>,
+}
