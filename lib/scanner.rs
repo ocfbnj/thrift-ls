@@ -53,28 +53,6 @@ impl Input for FileInput {
     }
 }
 
-pub struct StringInput {
-    data: String,
-}
-
-impl StringInput {
-    pub fn new(data: &str) -> Self {
-        StringInput {
-            data: data.to_string(),
-        }
-    }
-}
-
-impl Input for StringInput {
-    fn data(&self) -> Vec<char> {
-        self.data.chars().collect()
-    }
-
-    fn path(&self) -> PathBuf {
-        PathBuf::from("<string>")
-    }
-}
-
 impl Scanner {
     // create a new scanner with the given input data.
     pub fn new(input: impl Input) -> Self {

@@ -664,7 +664,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse() {
+    fn parse_success() {
         let work_path = std::env::current_dir().unwrap();
         let file_path = work_path.join(std::path::Path::new("./lib/test_file/ThriftTest.thrift"));
         let mut parser = Parser::new(FileInput::new(&file_path));
@@ -676,5 +676,22 @@ mod tests {
             println!("  {}: {}", error.location, error.message);
         }
         assert!(parser.errors().is_empty());
+    }
+
+    #[test]
+    fn parse_failed() {
+        let work_path = std::env::current_dir().unwrap();
+        let file_path = work_path.join(std::path::Path::new(
+            "./lib/test_file/InvalidThriftTest.thrift",
+        ));
+        let mut parser = Parser::new(FileInput::new(&file_path));
+
+        let document = parser.parse();
+        println!("Document: {:#?}", document);
+        println!("\nErrors:");
+        for error in parser.errors() {
+            println!("  {}: {}", error.location, error.message);
+        }
+        assert!(!parser.errors().is_empty());
     }
 }
