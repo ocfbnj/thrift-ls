@@ -1,0 +1,55 @@
+{
+    "name": "thrift-ls",
+    "displayName": "Thrift Language Server",
+    "description": "Language server for Apache Thrift",
+    "version": "0.1.0",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "languages": [
+            {
+                "id": "thrift",
+                "aliases": [
+                    "Thrift",
+                    "thrift"
+                ],
+                "extensions": [
+                    ".thrift"
+                ],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "thrift",
+                "scopeName": "source.thrift",
+                "path": "./syntaxes/thrift.tmLanguage.json"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "pretest": "npm run compile && npm run lint",
+        "lint": "eslint src --ext ts",
+        "test": "node ./out/test/runTest.js"
+    },
+    "devDependencies": {
+        "@types/vscode": "^1.85.0",
+        "@types/node": "18.x",
+        "@typescript-eslint/eslint-plugin": "^6.15.0",
+        "@typescript-eslint/parser": "^6.15.0",
+        "eslint": "^8.56.0",
+        "typescript": "^5.3.3",
+        "@vscode/test-electron": "^2.3.8"
+    },
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0"
+    }
+}

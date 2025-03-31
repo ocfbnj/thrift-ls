@@ -1,7 +1,8 @@
-pub mod scanner;
-pub mod token;
+pub mod macros;
 
 pub mod ast;
 pub mod parser;
+pub mod scanner;
+pub mod token;
 
-pub mod macros;
+pub mod lsp;

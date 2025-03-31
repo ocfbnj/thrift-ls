@@ -1,0 +1,117 @@
+use std::io;
+
+use bytes::BytesMut;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BaseMessage {
+    pub id: Option<i64>,
+    pub method: String,
+    pub params: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BaseResponse {
+    pub id: Option<i64>,
+    pub result: Option<Value>,
+    pub error: Option<Value>,
+}
+
+#[derive(Debug)]
+pub struct MessageReader {
+    buffer: BytesMut,
+}
+
+impl MessageReader {
+    pub fn new() -> Self {
+        Self {
+            buffer: BytesMut::new(),
+        }
+    }
+
+    pub async fn read_message<R: AsyncReadExt + Unpin>(
+        &mut self,
+        reader: &mut R,
+    ) -> io::Result<BaseMessage> {
+        loop {
+            reader.read_buf(&mut self.buffer).await?;
+
+            if let Some(message) = self.try_decode_message()? {
+                return Ok(message);
+            }
+        }
+    }
+
+    fn try_decode_message(&mut self) -> io::Result<Option<BaseMessage>> {
+        // find the end of the header
+        let header_end = match self
+            .buffer
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+        {
+            Some(pos) => pos,
+            None => return Ok(None),
+        };
+
+        // parse content length from header
+        let header = String::from_utf8_lossy(&self.buffer[..header_end]);
+        let content_length = match header
+            .lines()
+            .find(|line| line.starts_with("Content-Length: "))
+            .and_then(|line| line["Content-Length: ".len()..].parse::<usize>().ok())
+        {
+            Some(len) => len,
+            None => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "Invalid Content-Length header",
+                ))
+            }
+        };
+
+        // check if message is complete
+        let message_start = header_end + 4;
+        if self.buffer.len() < message_start + content_length {
+            return Ok(None);
+        }
+
+        // extract message and remove it from buffer
+        let message = &self.buffer.split_to(message_start + content_length)[message_start..];
+        let message = if let Ok(base_message) = serde_json::from_slice::<BaseMessage>(message) {
+            base_message
+        } else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Invalid message format",
+            ));
+        };
+
+        Ok(Some(message))
+    }
+}
+
+pub struct MessageWriter;
+
+impl MessageWriter {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn write_message<W: AsyncWriteExt + Unpin>(
+        &mut self,
+        writer: &mut W,
+        message: &impl Serialize,
+    ) -> io::Result<()> {
+        let message = self.encode_message(message);
+        writer.write_all(message.as_bytes()).await?;
+        writer.flush().await?;
+        Ok(())
+    }
+
+    fn encode_message(&mut self, message: &impl Serialize) -> String {
+        let content = serde_json::to_string(message).unwrap();
+        format!("Content-Length: {}\r\n\r\n{}", content.len(), content)
+    }
+}
