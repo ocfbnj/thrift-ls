@@ -31,16 +31,26 @@ impl Token {
         }
     }
 
-    // return true if the token is a separator.
+    // returns true if the token is a separator.
     pub fn is_line_separator(&self) -> bool {
         match self.kind {
             TokenKind::ListSeparator(_) => true,
             _ => false,
         }
     }
+
+    // returns the range of the token.
+    pub fn range(&self) -> Range {
+        let mut end = self.location.clone();
+        end.column += self.kind.len();
+        Range {
+            start: self.location.clone(),
+            end,
+        }
+    }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Location {
     pub path: PathBuf,
     pub line: usize,
@@ -50,6 +60,38 @@ pub struct Location {
 impl fmt::Display for Location {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}:{}", self.path.display(), self.line, self.column)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Range {
+    pub start: Location,
+    pub end: Location,
+}
+
+impl fmt::Display for Range {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.start.path == self.end.path && self.start.line == self.end.line {
+            write!(
+                f,
+                "{}:{}:{}-{}",
+                self.start.path.display(),
+                self.start.line,
+                self.start.column,
+                self.end.column
+            )
+        } else {
+            write!(
+                f,
+                "{}:{}:{}-{}:{}:{}",
+                self.start.path.display(),
+                self.start.line,
+                self.start.column,
+                self.end.path.display(),
+                self.end.line,
+                self.end.column
+            )
+        }
     }
 }
 
@@ -112,6 +154,55 @@ pub enum TokenKind {
 
     // end of file
     Eof,
+}
+
+impl TokenKind {
+    pub fn len(&self) -> usize {
+        match self {
+            TokenKind::Include => 7,
+            TokenKind::CppInclude => 11,
+            TokenKind::Namespace => 9,
+            TokenKind::Const => 5,
+            TokenKind::Typedef => 7,
+            TokenKind::Enum => 4,
+            TokenKind::Struct => 6,
+            TokenKind::Union => 5,
+            TokenKind::Exception => 9,
+            TokenKind::Service => 7,
+            TokenKind::Required => 8,
+            TokenKind::Optional => 8,
+            TokenKind::Oneway => 6,
+            TokenKind::Void => 4,
+            TokenKind::Throws => 6,
+            TokenKind::Extends => 7,
+            TokenKind::Map => 3,
+            TokenKind::Set => 3,
+            TokenKind::List => 4,
+            TokenKind::CppType => 8,
+            TokenKind::Assign => 1,
+            TokenKind::Colon => 1,
+            TokenKind::Less => 1,
+            TokenKind::Greater => 1,
+            TokenKind::Lparen => 1,
+            TokenKind::Rparen => 1,
+            TokenKind::Lbrace => 1,
+            TokenKind::Rbrace => 1,
+            TokenKind::Lbrack => 1,
+            TokenKind::Rbrack => 1,
+            TokenKind::Comment(ref s) => s.len() + 2,
+            TokenKind::BlockComment(ref s) => s.len() + 4,
+            TokenKind::IntConstant(ref s) => s.len(),
+            TokenKind::DoubleConstant(ref s) => s.len(),
+            TokenKind::NamespaceScope(ref s) => s.len(),
+            TokenKind::BaseType(ref s) => s.len(),
+            TokenKind::Literal(ref s) => s.len(),
+            TokenKind::Identifier(ref s) => s.len(),
+            TokenKind::ListSeparator(_) => 1,
+            TokenKind::Invalid(_) => 1,
+            TokenKind::InvalidString(ref s) => s.len(),
+            TokenKind::Eof => 0,
+        }
+    }
 }
 
 impl TokenKind {

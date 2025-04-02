@@ -8,12 +8,12 @@ use crate::{
     break_opt_token_or_eof, expect, expect_token, extract_token_value, opt_list_separator,
     parse_definition, parse_header,
     scanner::{Input, Scanner},
-    token::{Location, Token, TokenKind},
+    token::{Range, Token, TokenKind},
 };
 
 #[derive(Debug)]
 pub struct ParseError {
-    pub location: Location,
+    pub range: Range,
     pub message: String,
 }
 
@@ -210,9 +210,9 @@ impl Parser {
             TokenKind::Set => self.parse_set_type().map(|x| Box::new(x) as Box<dyn Node>),
             TokenKind::List => self.parse_list_type().map(|x| Box::new(x) as Box<dyn Node>),
             _ => {
-                self.add_error_at(
+                self.add_error(
                     format!("Expected map, set, or list, but got {:?}", next_token.kind),
-                    next_token.location,
+                    next_token.range(),
                 );
                 None
             }
@@ -298,9 +298,9 @@ impl Parser {
             TokenKind::Lbrace => self.parse_const_map(),
             _ => {
                 self.eat_next_token();
-                self.add_error_at(
+                self.add_error(
                     format!("Expected constant value, but got {:?}", next_token.kind),
-                    next_token.location,
+                    next_token.range(),
                 );
                 None
             }
@@ -456,9 +456,9 @@ impl Parser {
         let next_token = self.peek_next_token();
         if let TokenKind::Required | TokenKind::Optional = next_token.kind {
             if !field_req.is_none() {
-                self.add_error_at(
+                self.add_error(
                     format!("Expected field type, but got {:?}", next_token.kind),
-                    next_token.location,
+                    next_token.range(),
                 );
                 return None;
             }
@@ -626,8 +626,8 @@ impl Parser {
 
 // error handling
 impl Parser {
-    fn add_error_at(&mut self, message: String, location: Location) {
-        self.errors.push(ParseError { location, message });
+    fn add_error(&mut self, message: String, range: Range) {
+        self.errors.push(ParseError { range, message });
     }
 
     fn recover_to_next_definition(&mut self) {
@@ -673,7 +673,7 @@ mod tests {
         println!("Document: {:#?}", document);
         println!("\nErrors:");
         for error in parser.errors() {
-            println!("  {}: {}", error.location, error.message);
+            println!("  {}: {}", error.range, error.message);
         }
         assert!(parser.errors().is_empty());
     }
@@ -690,7 +690,7 @@ mod tests {
         println!("Document: {:#?}", document);
         println!("\nErrors:");
         for error in parser.errors() {
-            println!("  {}: {}", error.location, error.message);
+            println!("  {}: {}", error.range, error.message);
         }
         assert!(!parser.errors().is_empty());
     }

@@ -24,28 +24,43 @@ pub struct ScannerState {
 }
 
 pub trait Input {
-    fn data(&self) -> Vec<char>;
+    fn data(&mut self) -> Vec<char>;
     fn path(&self) -> PathBuf;
 }
 
 pub struct FileInput {
     path: PathBuf,
+    data: Option<Vec<char>>,
 }
 
 impl FileInput {
-    pub fn new(file_name: &Path) -> Self {
+    pub fn new(file_path: &Path) -> Self {
         FileInput {
-            path: file_name.to_path_buf(),
+            path: file_path.to_path_buf(),
+            data: None,
+        }
+    }
+
+    pub fn new_with_string(file_path: &Path, data: &str) -> Self {
+        FileInput {
+            path: file_path.to_path_buf(),
+            data: Some(data.chars().collect()),
         }
     }
 }
 
 impl Input for FileInput {
-    fn data(&self) -> Vec<char> {
-        std::fs::read_to_string(&self.path)
-            .unwrap()
-            .chars()
-            .collect()
+    fn data(&mut self) -> Vec<char> {
+        if self.data.is_none() {
+            self.data = Some(
+                std::fs::read_to_string(&self.path)
+                    .unwrap()
+                    .chars()
+                    .collect(),
+            );
+        }
+
+        return self.data.as_ref().unwrap().clone();
     }
 
     fn path(&self) -> PathBuf {
@@ -55,7 +70,7 @@ impl Input for FileInput {
 
 impl Scanner {
     // create a new scanner with the given input data.
-    pub fn new(input: impl Input) -> Self {
+    pub fn new(mut input: impl Input) -> Self {
         Scanner {
             input: input.data(),
             path: input.path(),

@@ -5,18 +5,143 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+use crate::token::{self, Location};
+
+// represents request message or notification message
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BaseMessage {
-    pub id: Option<i64>,
+    pub jsonrpc: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i32>,
     pub method: String,
     pub params: Option<Value>,
 }
 
+// represents response message
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BaseResponse {
-    pub id: Option<i64>,
+    pub jsonrpc: String,
+    pub id: Option<i32>,
     pub result: Option<Value>,
-    pub error: Option<Value>,
+    pub error: Option<ResponseError>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResponseError {
+    pub code: i32,
+    pub message: String,
+    pub data: Option<Value>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitializeParams {
+    pub process_id: Option<i64>,
+    pub client_info: Option<ClientInfo>,
+    pub locale: Option<String>,
+    pub root_path: Option<String>,
+    pub root_uri: Option<String>,
+    pub initialization_options: Option<Value>,
+    pub capabilities: Option<Value>,
+    pub trace: Option<String>,
+    pub workspace_folders: Option<Vec<Value>>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InitializeResult {
+    pub capabilities: Value,
+    pub server_info: Option<ServerInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerInfo {
+    pub name: String,
+    pub version: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidOpenTextDocumentParams {
+    pub text_document: TextDocumentItem,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentItem {
+    pub uri: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidChangeTextDocumentParams {
+    pub text_document: TextDocumentItem,
+    pub content_changes: Vec<TextDocumentContentChangeEvent>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentContentChangeEvent {
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishDiagnosticsParams {
+    pub uri: String,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+    pub range: Range,
+    pub severity: Option<u32>,
+    pub source: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Range {
+    pub start: Position,
+    pub end: Position,
+}
+
+impl From<token::Range> for Range {
+    fn from(value: token::Range) -> Self {
+        Range {
+            start: value.start.into(),
+            end: value.end.into(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Position {
+    pub line: u32,
+    pub character: u32,
+}
+
+impl From<Location> for Position {
+    fn from(value: Location) -> Self {
+        Position {
+            line: value.line as u32 - 1,
+            character: value.column as u32 - 1,
+        }
+    }
 }
 
 #[derive(Debug)]

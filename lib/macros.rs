@@ -33,9 +33,9 @@ macro_rules! parse_definition {
             )*
             TokenKind::Eof => break,
             _ => {
-                $self.add_error_at(
+                $self.add_error(
                     format!("Unexpected token: {:?}", next_token.kind),
-                    next_token.location,
+                    next_token.range(),
                 );
                 $self.eat_next_token();
                 $self.recover_to_next_definition();
@@ -50,9 +50,9 @@ macro_rules! extract_token_value {
         if let TokenKind::$value_type(value) = $token.kind {
             value
         } else {
-            $self.add_error_at(
+            $self.add_error(
                 format!("Expected {}, but got {:?}", $kind, $token.kind),
-                $token.location,
+                $token.range(),
             );
             return None;
         }
@@ -64,9 +64,9 @@ macro_rules! expect_token {
     ($self:expr, $kind:ident, $expected_str:expr) => {
         let token = $self.next_token();
         if token.kind != TokenKind::$kind {
-            $self.add_error_at(
+            $self.add_error(
                 format!("Expected {}, but got {:?}", $expected_str, token.kind),
-                token.location,
+                token.range(),
             );
             return None;
         }
@@ -78,9 +78,9 @@ macro_rules! expect {
     ($self:expr, $expected:expr, $expected_str:expr) => {
         let token = $self.next_token();
         if token.kind != $expected {
-            $self.add_error_at(
+            $self.add_error(
                 format!("Expected {}, but got {:?}", $expected_str, token.kind),
-                token.location,
+                token.range(),
             );
             return None;
         }
@@ -106,7 +106,7 @@ macro_rules! break_opt_token_or_eof {
             break;
         }
         if next_token.is_eof() {
-            $self.add_error_at("Unexpected end of file".to_string(), next_token.location);
+            $self.add_error("Unexpected end of file".to_string(), next_token.range());
             break;
         }
     };

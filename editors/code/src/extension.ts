@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, Trace, State, ErrorAction, CloseAction } from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind, ErrorAction, CloseAction } from 'vscode-languageclient/node';
 
 let languageClient: LanguageClient
 
@@ -9,7 +9,7 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('[Thrift LS] Extension is now activating...');
     console.log(`[Thrift LS] Extension path: ${context.extensionPath}`);
 
-    // 获取语言服务器可执行文件的路径
+    // get the path to the language server executable
     const serverPath = getServerPath(context);
     if (!serverPath) {
         console.error('[Thrift LS] Failed to find server executable');
@@ -18,21 +18,21 @@ export function activate(context: vscode.ExtensionContext) {
     }
     console.log(`[Thrift LS] Found server executable at: ${serverPath}`);
 
-    // 启动语言服务器
+    // start the language server
     startLanguageServer(serverPath);
 }
 
 function getServerPath(context: vscode.ExtensionContext): string | null {
-    // 获取项目根目录（editors/code 的父目录）
+    // get the project root directory (parent directory of editors/code)
     const projectRoot = path.join(context.extensionPath, '..', '..');
 
-    // 在开发环境中，服务器可执行文件位于 target/debug 目录
+    // in development environment, the server executable is in target/debug directory
     const debugPath = path.join(projectRoot, 'target', 'debug', 'thrift-ls.exe');
     if (fs.existsSync(debugPath)) {
         return debugPath;
     }
 
-    // 在发布环境中，服务器可执行文件位于 bin 目录
+    // in release environment, the server executable is in bin directory
     const releasePath = path.join(projectRoot, 'bin', 'thrift-ls.exe');
     if (fs.existsSync(releasePath)) {
         return releasePath;
@@ -42,9 +42,6 @@ function getServerPath(context: vscode.ExtensionContext): string | null {
 }
 
 function startLanguageServer(serverPath: string) {
-    console.log('[Thrift LS] Starting language server...');
-
-    // 创建语言客户端
     const serverOptions: ServerOptions = {
         run: {
             command: serverPath,
@@ -59,10 +56,14 @@ function startLanguageServer(serverPath: string) {
     };
 
     const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'thrift' }],
+        documentSelector: [
+            { scheme: 'file', language: 'thrift' },
+            { pattern: '**/*.thrift' }
+        ],
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher('**/*.thrift')
         },
+        diagnosticCollectionName: 'thrift-ls',
         outputChannelName: 'Thrift Language Server',
         connectionOptions: {
             maxRestartCount: 3
@@ -81,7 +82,6 @@ function startLanguageServer(serverPath: string) {
         }
     };
 
-    console.log('[Thrift LS] Creating language client...');
     languageClient = new LanguageClient(
         'thrift-ls',
         'Thrift Language Server',
@@ -89,33 +89,7 @@ function startLanguageServer(serverPath: string) {
         clientOptions
     );
 
-    // 添加连接状态监听
-    languageClient.onDidChangeState(({ oldState, newState }) => {
-        console.log(`[Thrift LS] Client state changed from ${oldState} to ${newState}`);
-        if (newState === State.Stopped) {
-            console.error('[Thrift LS] Client stopped unexpectedly');
-            vscode.window.showErrorMessage('Thrift Language Server stopped unexpectedly');
-        }
-    });
-
-    // 添加请求和响应的日志处理
-    languageClient.onNotification('$/logTrace', (params: any) => {
-        console.log(`[Thrift LS Trace] ${JSON.stringify(params, null, 2)}`);
-    });
-
-    languageClient.onRequest('$/logTrace', (params: any) => {
-        console.log(`[Thrift LS Trace] ${JSON.stringify(params, null, 2)}`);
-        return Promise.resolve();
-    });
-
-    // 启动客户端
-    console.log('[Thrift LS] Starting language client...');
-    languageClient.start().then(() => {
-        console.log('[Thrift LS] Language client started successfully');
-        // 启用详细日志
-        languageClient.outputChannel.show();
-        languageClient.outputChannel.appendLine('LSP Trace enabled');
-    }).catch(error => {
+    languageClient.start().catch(error => {
         console.error('[Thrift LS] Failed to start language client:', error);
         vscode.window.showErrorMessage(`Failed to start Thrift Language Server: ${error.message}`);
     });

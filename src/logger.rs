@@ -40,8 +40,13 @@ pub fn init() {
             }
         }
 
-        // set log level
-        log::set_max_level(LevelFilter::Debug);
+        // set log level based on build configuration
+        let level = if cfg!(debug_assertions) {
+            LevelFilter::Debug
+        } else {
+            LevelFilter::Info
+        };
+        log::set_max_level(level);
 
         // set custom logger
         if let Err(e) = log::set_boxed_logger(Box::new(CustomLogger)) {
