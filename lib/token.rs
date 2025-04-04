@@ -156,6 +156,55 @@ pub enum TokenKind {
     Eof,
 }
 
+impl fmt::Display for TokenKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TokenKind::Include => write!(f, "include"),
+            TokenKind::CppInclude => write!(f, "cpp_include"),
+            TokenKind::Namespace => write!(f, "namespace"),
+            TokenKind::Const => write!(f, "const"),
+            TokenKind::Typedef => write!(f, "typedef"),
+            TokenKind::Enum => write!(f, "enum"),
+            TokenKind::Struct => write!(f, "struct"),
+            TokenKind::Union => write!(f, "union"),
+            TokenKind::Exception => write!(f, "exception"),
+            TokenKind::Service => write!(f, "service"),
+            TokenKind::Required => write!(f, "required"),
+            TokenKind::Optional => write!(f, "optional"),
+            TokenKind::Oneway => write!(f, "oneway"),
+            TokenKind::Void => write!(f, "void"),
+            TokenKind::Throws => write!(f, "throws"),
+            TokenKind::Extends => write!(f, "extends"),
+            TokenKind::Map => write!(f, "map"),
+            TokenKind::Set => write!(f, "set"),
+            TokenKind::List => write!(f, "list"),
+            TokenKind::CppType => write!(f, "cpp_type"),
+            TokenKind::Assign => write!(f, "="),
+            TokenKind::Colon => write!(f, ":"),
+            TokenKind::Less => write!(f, "<"),
+            TokenKind::Greater => write!(f, ">"),
+            TokenKind::Lparen => write!(f, "("),
+            TokenKind::Rparen => write!(f, ")"),
+            TokenKind::Lbrace => write!(f, "{{"),
+            TokenKind::Rbrace => write!(f, "}}"),
+            TokenKind::Lbrack => write!(f, "["),
+            TokenKind::Rbrack => write!(f, "]"),
+            TokenKind::Comment(ref s) => write!(f, "//{}", s),
+            TokenKind::BlockComment(ref s) => write!(f, "/*{}*/", s),
+            TokenKind::IntConstant(ref s) => write!(f, "{}", s),
+            TokenKind::DoubleConstant(ref s) => write!(f, "{}", s),
+            TokenKind::NamespaceScope(ref s) => write!(f, "{}", s),
+            TokenKind::BaseType(ref s) => write!(f, "{}", s),
+            TokenKind::Literal(ref s) => write!(f, "{}", s),
+            TokenKind::Identifier(ref s) => write!(f, "{}", s),
+            TokenKind::ListSeparator(c) => write!(f, "{}", c),
+            TokenKind::Invalid(c) => write!(f, "{}", c),
+            TokenKind::InvalidString(ref s) => write!(f, "{}", s),
+            TokenKind::Eof => write!(f, "<EOF>"),
+        }
+    }
+}
+
 impl TokenKind {
     pub fn len(&self) -> usize {
         match self {

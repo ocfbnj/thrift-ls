@@ -1,7 +1,7 @@
 use std::fmt;
 
-pub trait Node: fmt::Debug {}
-impl<T> Node for T where T: fmt::Debug {}
+pub trait Node: fmt::Debug + Send {}
+impl<T> Node for T where T: fmt::Debug + Send {}
 
 #[derive(Debug)]
 pub struct DocumentNode {

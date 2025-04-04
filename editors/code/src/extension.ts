@@ -96,6 +96,8 @@ function startLanguageServer(serverPath: string) {
 }
 
 export function deactivate(): Thenable<void> | undefined {
+    console.log('[Thrift LS] Extension is now deactivating...');
+
     if (!languageClient) {
         return undefined;
     }

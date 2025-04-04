@@ -34,7 +34,7 @@ macro_rules! parse_definition {
             TokenKind::Eof => break,
             _ => {
                 $self.add_error(
-                    format!("Unexpected token: {:?}", next_token.kind),
+                    format!("Unexpected token: {}", next_token.kind),
                     next_token.range(),
                 );
                 $self.eat_next_token();
@@ -51,7 +51,7 @@ macro_rules! extract_token_value {
             value
         } else {
             $self.add_error(
-                format!("Expected {}, but got {:?}", $kind, $token.kind),
+                format!("Expected {}, but got {}", $kind, $token.kind),
                 $token.range(),
             );
             return None;
@@ -65,7 +65,7 @@ macro_rules! expect_token {
         let token = $self.next_token();
         if token.kind != TokenKind::$kind {
             $self.add_error(
-                format!("Expected {}, but got {:?}", $expected_str, token.kind),
+                format!("Expected {}, but got {}", $expected_str, token.kind),
                 token.range(),
             );
             return None;
@@ -79,7 +79,7 @@ macro_rules! expect {
         let token = $self.next_token();
         if token.kind != $expected {
             $self.add_error(
-                format!("Expected {}, but got {:?}", $expected_str, token.kind),
+                format!("Expected {}, but got {}", $expected_str, token.kind),
                 token.range(),
             );
             return None;

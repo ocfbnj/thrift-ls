@@ -1,9 +1,12 @@
+use std::{
+    fs::File,
+    io::Write,
+    path::PathBuf,
+    sync::{Mutex, Once},
+};
+
 use chrono::Local;
 use log::{LevelFilter, Record};
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
-use std::sync::{Mutex, Once};
 
 static INIT: Once = Once::new();
 static LOG_FILE: Mutex<Option<File>> = Mutex::new(None);

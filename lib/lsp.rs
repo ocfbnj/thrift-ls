@@ -18,6 +18,12 @@ pub struct BaseMessage {
     pub params: Option<Value>,
 }
 
+impl BaseMessage {
+    pub fn is_notification(&self) -> bool {
+        self.id.is_none()
+    }
+}
+
 // represents response message
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,19 +87,41 @@ pub struct DidOpenTextDocumentParams {
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentItem {
     pub uri: String,
+    pub language_id: String,
+    pub version: i32,
+    pub text: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DidChangeTextDocumentParams {
-    pub text_document: TextDocumentItem,
+    pub text_document: VersionedTextDocumentIdentifier,
     pub content_changes: Vec<TextDocumentContentChangeEvent>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionedTextDocumentIdentifier {
+    pub uri: String,
+    pub version: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentContentChangeEvent {
     pub text: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DidCloseTextDocumentParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextDocumentIdentifier {
+    pub uri: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -217,6 +245,7 @@ impl MessageReader {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct MessageWriter;
 
 impl MessageWriter {
@@ -225,7 +254,7 @@ impl MessageWriter {
     }
 
     pub async fn write_message<W: AsyncWriteExt + Unpin>(
-        &mut self,
+        &self,
         writer: &mut W,
         message: &impl Serialize,
     ) -> io::Result<()> {
@@ -235,7 +264,7 @@ impl MessageWriter {
         Ok(())
     }
 
-    fn encode_message(&mut self, message: &impl Serialize) -> String {
+    fn encode_message(&self, message: &impl Serialize) -> String {
         let content = serde_json::to_string(message).unwrap();
         format!("Content-Length: {}\r\n\r\n{}", content.len(), content)
     }

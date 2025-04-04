@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::token::{self, Location, TokenKind};
+use crate::token::{self, TokenKind};
 
 pub struct Scanner {
     input: Vec<char>,    // input data
@@ -24,43 +24,39 @@ pub struct ScannerState {
 }
 
 pub trait Input {
-    fn data(&mut self) -> Vec<char>;
+    fn content(&self) -> Vec<char>;
     fn path(&self) -> PathBuf;
 }
 
 pub struct FileInput {
     path: PathBuf,
-    data: Option<Vec<char>>,
+    content: Vec<char>,
 }
 
 impl FileInput {
     pub fn new(file_path: &Path) -> Self {
+        let content = std::fs::read_to_string(&file_path)
+            .unwrap()
+            .chars()
+            .collect();
+
         FileInput {
             path: file_path.to_path_buf(),
-            data: None,
+            content,
         }
     }
 
-    pub fn new_with_string(file_path: &Path, data: &str) -> Self {
+    pub fn new_with_content(file_path: &Path, content: &[char]) -> Self {
         FileInput {
             path: file_path.to_path_buf(),
-            data: Some(data.chars().collect()),
+            content: content.to_vec(),
         }
     }
 }
 
 impl Input for FileInput {
-    fn data(&mut self) -> Vec<char> {
-        if self.data.is_none() {
-            self.data = Some(
-                std::fs::read_to_string(&self.path)
-                    .unwrap()
-                    .chars()
-                    .collect(),
-            );
-        }
-
-        return self.data.as_ref().unwrap().clone();
+    fn content(&self) -> Vec<char> {
+        self.content.clone()
     }
 
     fn path(&self) -> PathBuf {
@@ -68,11 +64,23 @@ impl Input for FileInput {
     }
 }
 
+pub struct EmptyInput;
+
+impl Input for EmptyInput {
+    fn content(&self) -> Vec<char> {
+        vec![]
+    }
+
+    fn path(&self) -> PathBuf {
+        PathBuf::new()
+    }
+}
+
 impl Scanner {
     // create a new scanner with the given input data.
-    pub fn new(mut input: impl Input) -> Self {
+    pub fn new(input: impl Input) -> Self {
         Scanner {
-            input: input.data(),
+            input: input.content(),
             path: input.path(),
             state: ScannerState {
                 offset: 0,
@@ -96,7 +104,17 @@ impl Scanner {
                     self.state.column = 1;
                     self.state.line += 1;
                 }
-                ' ' | '\r' => {
+                '\r' => {
+                    self.state.offset += 1;
+                    self.state.column = 1;
+                    self.state.line += 1;
+
+                    if self.state.offset < self.input.len() && self.input[self.state.offset] == '\n'
+                    {
+                        self.state.offset += 1;
+                    }
+                }
+                ' ' | '\t' => {
                     self.state.offset += 1;
                     self.state.column += 1;
                 }
@@ -335,12 +353,14 @@ impl Scanner {
         self.state = state;
     }
 
-    pub fn cur_location(&self) -> Location {
-        Location {
-            line: self.state.line,
-            column: self.state.column,
-            path: self.path.clone(),
-        }
+    pub fn reset(&mut self, input: impl Input) {
+        self.input = input.content();
+        self.path = input.path();
+        self.state = ScannerState {
+            offset: 0,
+            line: 1,
+            column: 1,
+        };
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
     token::{Range, Token, TokenKind},
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParseError {
     pub range: Range,
     pub message: String,
@@ -37,6 +37,11 @@ impl Parser {
         };
 
         node
+    }
+
+    pub fn reset(&mut self, input: impl Input) {
+        self.scanner.reset(input);
+        self.errors.clear();
     }
 
     pub fn errors(&self) -> &[ParseError] {
@@ -211,7 +216,7 @@ impl Parser {
             TokenKind::List => self.parse_list_type().map(|x| Box::new(x) as Box<dyn Node>),
             _ => {
                 self.add_error(
-                    format!("Expected map, set, or list, but got {:?}", next_token.kind),
+                    format!("Expected map, set, or list, but got {}", next_token.kind),
                     next_token.range(),
                 );
                 None
@@ -299,7 +304,7 @@ impl Parser {
             _ => {
                 self.eat_next_token();
                 self.add_error(
-                    format!("Expected constant value, but got {:?}", next_token.kind),
+                    format!("Expected constant value, but got {}", next_token.kind),
                     next_token.range(),
                 );
                 None
@@ -457,7 +462,7 @@ impl Parser {
         if let TokenKind::Required | TokenKind::Optional = next_token.kind {
             if !field_req.is_none() {
                 self.add_error(
-                    format!("Expected field type, but got {:?}", next_token.kind),
+                    format!("Expected field type, but got {}", next_token.kind),
                     next_token.range(),
                 );
                 return None;
