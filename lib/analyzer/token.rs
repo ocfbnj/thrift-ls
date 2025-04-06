@@ -1,19 +1,21 @@
-use std::fmt;
-use std::path::PathBuf;
+use std::fmt::{Display, Formatter, Result};
 
-#[derive(PartialEq, Debug)]
+use crate::analyzer::base::{Location, Range};
+
+/// Represents a Thrift token in the input stream.
+#[derive(PartialEq, Debug, Clone, Default)]
 pub struct Token {
     pub kind: TokenKind,
     pub location: Location,
 }
 
 impl Token {
-    // returns true if the token is an EOF token.
+    /// Returns true if the token is an EOF token.
     pub fn is_eof(&self) -> bool {
         self.kind == TokenKind::Eof
     }
 
-    // returns true if the token is an invalid token.
+    /// Returns true if the token is an invalid token.
     pub fn is_invalid(&self) -> bool {
         match self.kind {
             TokenKind::Invalid(_) => true,
@@ -22,7 +24,7 @@ impl Token {
         }
     }
 
-    // returns true if the token is a comment.
+    /// Returns true if the token is a comment.
     pub fn is_comment(&self) -> bool {
         match self.kind {
             TokenKind::Comment(_) => true,
@@ -31,7 +33,7 @@ impl Token {
         }
     }
 
-    // returns true if the token is a separator.
+    /// Returns true if the token is a separator.
     pub fn is_line_separator(&self) -> bool {
         match self.kind {
             TokenKind::ListSeparator(_) => true,
@@ -39,7 +41,7 @@ impl Token {
         }
     }
 
-    // returns the range of the token.
+    /// Returns the range of the token.
     pub fn range(&self) -> Range {
         let mut end = self.location.clone();
         end.column += self.kind.len();
@@ -50,51 +52,7 @@ impl Token {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Location {
-    pub path: PathBuf,
-    pub line: usize,
-    pub column: usize,
-}
-
-impl fmt::Display for Location {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}:{}", self.path.display(), self.line, self.column)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Range {
-    pub start: Location,
-    pub end: Location,
-}
-
-impl fmt::Display for Range {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.start.path == self.end.path && self.start.line == self.end.line {
-            write!(
-                f,
-                "{}:{}:{}-{}",
-                self.start.path.display(),
-                self.start.line,
-                self.start.column,
-                self.end.column
-            )
-        } else {
-            write!(
-                f,
-                "{}:{}:{}-{}:{}:{}",
-                self.start.path.display(),
-                self.start.line,
-                self.start.column,
-                self.end.path.display(),
-                self.end.line,
-                self.end.column
-            )
-        }
-    }
-}
-
+/// Represents the kind of a Thrift token.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // keywords
@@ -156,8 +114,14 @@ pub enum TokenKind {
     Eof,
 }
 
-impl fmt::Display for TokenKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl Default for TokenKind {
+    fn default() -> Self {
+        TokenKind::Eof
+    }
+}
+
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         match self {
             TokenKind::Include => write!(f, "include"),
             TokenKind::CppInclude => write!(f, "cpp_include"),
@@ -206,6 +170,7 @@ impl fmt::Display for TokenKind {
 }
 
 impl TokenKind {
+    /// Returns the length of the token.
     pub fn len(&self) -> usize {
         match self {
             TokenKind::Include => 7,
@@ -244,7 +209,7 @@ impl TokenKind {
             TokenKind::DoubleConstant(ref s) => s.len(),
             TokenKind::NamespaceScope(ref s) => s.len(),
             TokenKind::BaseType(ref s) => s.len(),
-            TokenKind::Literal(ref s) => s.len(),
+            TokenKind::Literal(ref s) => s.len() + 2,
             TokenKind::Identifier(ref s) => s.len(),
             TokenKind::ListSeparator(_) => 1,
             TokenKind::Invalid(_) => 1,
@@ -255,7 +220,7 @@ impl TokenKind {
 }
 
 impl TokenKind {
-    // create token from string.
+    /// Creates a token from a string.
     pub fn from_string(s: &str) -> Option<TokenKind> {
         let tok = match s {
             "include" => TokenKind::Include,
@@ -315,7 +280,7 @@ impl TokenKind {
         Some(tok)
     }
 
-    // create token from char.
+    /// Creates a token from a character.
     pub fn from_char(c: char) -> Option<TokenKind> {
         let tok = match c {
             '=' => TokenKind::Assign,

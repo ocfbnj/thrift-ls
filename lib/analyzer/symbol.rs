@@ -1,0 +1,163 @@
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
+
+use crate::analyzer::{
+    ast::{
+        BaseTypeNode, DocumentNode, ExceptionNode, IdentifierNode, ListTypeNode, MapTypeNode, Node,
+        ServiceNode, SetTypeNode, StructNode, UnionNode,
+    },
+    base::Error,
+};
+
+use super::ast::DefinitionNode;
+
+/// Symbol table for a single file.
+#[derive(Debug, Clone)]
+pub struct SymbolTable {
+    types: HashMap<String, Box<dyn DefinitionNode>>,
+    includes: HashMap<String, Arc<RwLock<SymbolTable>>>,
+    errors: Vec<Error>,
+}
+
+impl SymbolTable {
+    /// Create a new empty symbol table.
+    pub fn new() -> Self {
+        Self {
+            types: HashMap::new(),
+            includes: HashMap::new(),
+            errors: Vec::new(),
+        }
+    }
+
+    /// Create a new symbol table from an AST.
+    pub fn new_from_ast(document: &DocumentNode) -> Self {
+        let mut table = Self::new();
+        document.definitions.iter().for_each(|definition| {
+            table.process_definition(definition.as_ref());
+        });
+        table
+    }
+
+    /// Add a dependency to the symbol table.
+    pub fn add_dependency(&mut self, path: PathBuf, dependency: Arc<RwLock<SymbolTable>>) {
+        let namespace = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or_default()
+            .to_string();
+
+        self.includes.insert(namespace, dependency);
+    }
+
+    /// Get the errors.
+    pub fn errors(&self) -> Vec<Error> {
+        let mut all_errors = self.errors.clone();
+        for table in self.includes.values() {
+            all_errors.extend(table.read().unwrap().errors());
+        }
+        all_errors
+    }
+
+    /// Check the types of the document.
+    pub fn check_document_types(&mut self, document: &DocumentNode) {
+        for definition in &document.definitions {
+            let definition = definition.as_ref();
+            let definition = definition.as_any();
+
+            if let Some(struct_def) = definition.downcast_ref::<StructNode>() {
+                for field in &struct_def.fields {
+                    self.check_field_type(&*field.field_type);
+                }
+            } else if let Some(union_def) = definition.downcast_ref::<UnionNode>() {
+                for field in &union_def.fields {
+                    self.check_field_type(&*field.field_type);
+                }
+            } else if let Some(exception_def) = definition.downcast_ref::<ExceptionNode>() {
+                for field in &exception_def.fields {
+                    self.check_field_type(&*field.field_type);
+                }
+            } else if let Some(service_def) = definition.downcast_ref::<ServiceNode>() {
+                for function in &service_def.functions {
+                    self.check_field_type(&*function.return_type);
+
+                    for param in &function.parameters {
+                        self.check_field_type(&*param.field_type);
+                    }
+
+                    if let Some(throws) = &function.throws {
+                        for throw in throws {
+                            self.check_field_type(&*throw.field_type);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl SymbolTable {
+    fn process_definition(&mut self, definition: &dyn DefinitionNode) {
+        if self.types.contains_key(definition.name()) {
+            self.errors.push(Error {
+                range: definition.range(),
+                message: format!("Duplicate definition with name: {}", definition.name()),
+            });
+            return;
+        }
+
+        self.types.insert(
+            definition.name().to_string(),
+            definition.clone_definition_box(),
+        );
+    }
+
+    fn check_field_type(&mut self, field_type: &dyn Node) {
+        if let Some(_) = field_type.as_any().downcast_ref::<BaseTypeNode>() {
+            // base types are always valid
+        } else if let Some(identifier) = field_type.as_any().downcast_ref::<IdentifierNode>() {
+            if !self.resolve_identifier_type(identifier) {
+                self.errors.push(Error {
+                    range: identifier.range(),
+                    message: format!("Undefined type: {}", identifier.name),
+                });
+            }
+        } else if let Some(list_type) = field_type.as_any().downcast_ref::<ListTypeNode>() {
+            self.check_field_type(&*list_type.type_node);
+        } else if let Some(set_type) = field_type.as_any().downcast_ref::<SetTypeNode>() {
+            self.check_field_type(&*set_type.type_node);
+        } else if let Some(map_type) = field_type.as_any().downcast_ref::<MapTypeNode>() {
+            self.check_field_type(&*map_type.key_type);
+            self.check_field_type(&*map_type.value_type);
+        } else {
+            self.errors.push(Error {
+                range: field_type.range(),
+                message: "Invalid field type".to_string(),
+            });
+        }
+    }
+
+    fn resolve_identifier_type(&self, identifier: &IdentifierNode) -> bool {
+        // check if the identifier contains a namespace (file name)
+        if let Some((namespace, type_name)) = identifier.name.split_once('.') {
+            // look up in included files
+            if let Some(included_table) = self.includes.get(namespace) {
+                // create a new identifier with just the type name
+                let type_identifier = IdentifierNode {
+                    name: type_name.to_string(),
+                    range: identifier.range(),
+                };
+                return included_table
+                    .read()
+                    .unwrap()
+                    .resolve_identifier_type(&type_identifier);
+            }
+            return false;
+        }
+
+        // look up type in current symbol table
+        self.types.contains_key(&identifier.name)
+    }
+}

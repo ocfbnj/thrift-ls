@@ -99,7 +99,7 @@ async fn diagnostics<W: AsyncWriteExt + Unpin + Send>(
     };
 
     let mut analyzer = analyzer.lock().await;
-    analyzer.add_document(path.clone(), content);
+    analyzer.sync_document(path.clone(), content);
     analyzer.analyze();
     let errors_map = analyzer.errors();
 

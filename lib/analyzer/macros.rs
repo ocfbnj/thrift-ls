@@ -1,3 +1,4 @@
+/// Parses a header.
 #[macro_export]
 macro_rules! parse_header {
     ($self:ident, $headers:ident, $($kind:ident => $parse_fn:ident),* $(,)?) => {
@@ -16,6 +17,7 @@ macro_rules! parse_header {
     };
 }
 
+/// Parses a definition.
 #[macro_export]
 macro_rules! parse_definition {
     ($self:ident, $definitions:ident, $($kind:ident => $parse_fn:ident),* $(,)?) => {
@@ -44,6 +46,7 @@ macro_rules! parse_definition {
     };
 }
 
+/// Extracts the value of a token.
 #[macro_export]
 macro_rules! extract_token_value {
     ($self:expr, $token:expr, $value_type:ident, $kind:expr) => {
@@ -59,6 +62,7 @@ macro_rules! extract_token_value {
     };
 }
 
+/// Expects a token kind.
 #[macro_export]
 macro_rules! expect_token {
     ($self:expr, $kind:ident, $expected_str:expr) => {
@@ -73,6 +77,7 @@ macro_rules! expect_token {
     };
 }
 
+/// Expects a token.
 #[macro_export]
 macro_rules! expect {
     ($self:expr, $expected:expr, $expected_str:expr) => {
@@ -87,6 +92,7 @@ macro_rules! expect {
     };
 }
 
+/// Optional list separator.
 #[macro_export]
 macro_rules! opt_list_separator {
     ($self:expr) => {
@@ -97,6 +103,7 @@ macro_rules! opt_list_separator {
     };
 }
 
+/// Breaks if the next token is the expected kind or EOF.
 #[macro_export]
 macro_rules! break_opt_token_or_eof {
     ($self:expr, $kind:ident) => {
@@ -109,5 +116,45 @@ macro_rules! break_opt_token_or_eof {
             $self.add_error("Unexpected end of file".to_string(), next_token.range());
             break;
         }
+    };
+}
+
+/// Implements the Node trait for the given types.
+#[macro_export]
+macro_rules! impl_node {
+    ($($t:ty),*) => {
+        $(
+            impl Node for $t {
+                fn as_any(&self) -> &dyn Any {
+                    self
+                }
+
+                fn clone_box(&self) -> Box<dyn Node> {
+                    Box::new(self.clone())
+                }
+
+                fn range(&self) -> Range {
+                    self.range.clone()
+                }
+            }
+        )*
+    };
+}
+
+/// Implements the DefinitionNode trait for the given types.
+#[macro_export]
+macro_rules! impl_definition_node {
+    ($($t:ty),*) => {
+        $(
+            impl DefinitionNode for $t {
+                fn name(&self) -> &str {
+                    &self.name
+                }
+
+                fn clone_definition_box(&self) -> Box<dyn DefinitionNode> {
+                    Box::new(self.clone())
+                }
+            }
+        )*
     };
 }

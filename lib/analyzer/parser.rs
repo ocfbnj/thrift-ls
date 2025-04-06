@@ -1,50 +1,62 @@
 use crate::{
-    ast::{
-        BaseTypeNode, ConstNode, ConstValueNode, CppIncludeNode, DocumentNode, EnumNode,
-        EnumValueNode, ExceptionNode, FieldNode, FunctionNode, IdentifierNode, IncludeNode,
-        ListTypeNode, MapTypeNode, NamespaceNode, Node, ServiceNode, SetTypeNode, StructNode,
-        TypedefNode, UnionNode,
+    analyzer::{
+        ast::{
+            BaseTypeNode, ConstNode, ConstValueNode, CppIncludeNode, DocumentNode, EnumNode,
+            EnumValueNode, ExceptionNode, FieldNode, FunctionNode, IdentifierNode, IncludeNode,
+            ListTypeNode, MapTypeNode, NamespaceNode, Node, ServiceNode, SetTypeNode, StructNode,
+            TypedefNode, UnionNode,
+        },
+        base::{Error, Range},
+        scanner::{Input, Scanner},
+        token::{Token, TokenKind},
     },
     break_opt_token_or_eof, expect, expect_token, extract_token_value, opt_list_separator,
     parse_definition, parse_header,
-    scanner::{Input, Scanner},
-    token::{Range, Token, TokenKind},
 };
 
-#[derive(Debug, Clone)]
-pub struct ParseError {
-    pub range: Range,
-    pub message: String,
-}
+use super::ast::DefinitionNode;
 
+/// Parser for a single file.
 pub struct Parser {
     scanner: Scanner,
-    errors: Vec<ParseError>,
+    prev_token: Option<Token>,
+    errors: Vec<Error>,
 }
 
 impl Parser {
+    /// Create a new parser.
     pub fn new(input: impl Input) -> Parser {
         Parser {
             scanner: Scanner::new(input),
             errors: Vec::new(),
+            prev_token: None,
         }
     }
 
-    pub fn parse(&mut self) -> DocumentNode {
-        let node = DocumentNode {
-            headers: self.parse_headers(),
-            definitions: self.parse_definitions(),
-        };
-
-        node
-    }
-
+    /// Reset the parser.
     pub fn reset(&mut self, input: impl Input) {
         self.scanner.reset(input);
+        self.prev_token = None;
         self.errors.clear();
     }
 
-    pub fn errors(&self) -> &[ParseError] {
+    /// Parse a single file.
+    pub fn parse(&mut self) -> DocumentNode {
+        let start = self.peek_next_token().range().start;
+        let headers = self.parse_headers();
+        let definitions = self.parse_definitions();
+        let end = self.prev_token().unwrap_or_default().range().end;
+
+        let range = Range { start, end };
+        DocumentNode {
+            headers,
+            definitions,
+            range,
+        }
+    }
+
+    /// Get the errors.
+    pub fn errors(&self) -> &[Error] {
         &self.errors
     }
 }
@@ -52,8 +64,17 @@ impl Parser {
 impl Parser {
     fn next_token(&mut self) -> Token {
         self.skip_comment_tokens();
-        let (next_token, _) = self.scanner.scan();
+        let (next_token, err) = self.scanner.scan();
+        if let Some(err) = err {
+            self.add_error(err.message, err.range);
+        }
+
+        self.prev_token = Some(next_token.clone());
         next_token
+    }
+
+    fn prev_token(&self) -> Option<Token> {
+        self.prev_token.clone()
     }
 
     fn peek_next_token(&mut self) -> Token {
@@ -104,42 +125,51 @@ impl Parser {
     fn parse_include(&mut self) -> Option<IncludeNode> {
         // Include ::= 'include' Literal
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Include, "'include'");
         let token = self.next_token();
         let literal = extract_token_value!(self, token, Literal, "literal");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(IncludeNode { literal })
+        let range = Range { start, end };
+        Some(IncludeNode { literal, range })
     }
 
     fn parse_cpp_include(&mut self) -> Option<CppIncludeNode> {
         // CppInclude ::= 'cpp_include' Literal
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, CppInclude, "'cpp_include'");
         let token = self.next_token();
         let literal = extract_token_value!(self, token, Literal, "literal");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(CppIncludeNode { literal })
+        let range = Range { start, end };
+        Some(CppIncludeNode { literal, range })
     }
 
     fn parse_namespace(&mut self) -> Option<NamespaceNode> {
         // Namespace ::= 'namespace' NamespaceScope Identifier
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Namespace, "'namespace'");
         let token = self.next_token();
         let scope = extract_token_value!(self, token, NamespaceScope, "namespace scope");
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(NamespaceNode { name, scope })
+        let range = Range { start, end };
+        Some(NamespaceNode { name, scope, range })
     }
 }
 
 // parse definitions
 impl Parser {
-    fn parse_definitions(&mut self) -> Vec<Box<dyn Node>> {
+    fn parse_definitions(&mut self) -> Vec<Box<dyn DefinitionNode>> {
         // Definitions ::= ( Const | Typedef | Enum | Struct | Union | Exception | Service )*
 
-        let mut definitions: Vec<Box<dyn Node>> = Vec::new();
+        let mut definitions: Vec<Box<dyn DefinitionNode>> = Vec::new();
 
         loop {
             parse_definition!(
@@ -161,6 +191,7 @@ impl Parser {
     fn parse_const(&mut self) -> Option<ConstNode> {
         // Const ::= 'const' FieldType Identifier '=' ConstValue ListSeparator?
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Const, "'const'");
         let field_type = self.parse_field_type()?;
         let token = self.next_token();
@@ -168,11 +199,14 @@ impl Parser {
         expect_token!(self, Assign, "'='");
         let value = Box::new(self.parse_const_value()?);
         opt_list_separator!(self);
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(ConstNode {
             field_type,
             name,
             value,
+            range,
         })
     }
 
@@ -181,9 +215,12 @@ impl Parser {
 
         let next_token = self.peek_next_token();
         match next_token.kind {
-            TokenKind::Identifier(identifier) => {
+            TokenKind::Identifier(ref identifier) => {
                 self.eat_next_token();
-                return Some(Box::new(IdentifierNode { name: identifier }));
+                return Some(Box::new(IdentifierNode {
+                    name: identifier.clone(),
+                    range: next_token.range(),
+                }));
             }
             _ => {
                 return self.parse_definition_type();
@@ -196,9 +233,12 @@ impl Parser {
 
         let next_token = self.peek_next_token();
         match next_token.kind {
-            TokenKind::BaseType(base_type) => {
+            TokenKind::BaseType(ref base_type) => {
                 self.eat_next_token();
-                return Some(Box::new(BaseTypeNode { name: base_type }));
+                return Some(Box::new(BaseTypeNode {
+                    name: base_type.clone(),
+                    range: next_token.range(),
+                }));
             }
             _ => {
                 return self.parse_container_type();
@@ -239,6 +279,7 @@ impl Parser {
     fn parse_map_type(&mut self) -> Option<MapTypeNode> {
         // MapType ::= 'map' CppType? '<' FieldType ',' FieldType '>'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Map, "'map'");
         let cpp_type = self.opt_parse_cpp_type();
 
@@ -247,43 +288,54 @@ impl Parser {
         expect!(self, TokenKind::ListSeparator(','), "','");
         let value_type = self.parse_field_type()?;
         expect_token!(self, Greater, "'>'");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(MapTypeNode {
             cpp_type,
             key_type,
             value_type,
+            range,
         })
     }
 
     fn parse_set_type(&mut self) -> Option<SetTypeNode> {
         // SetType ::= 'set' CppType? '<' FieldType '>'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Set, "'set'");
         let cpp_type = self.opt_parse_cpp_type();
 
         expect!(self, TokenKind::Less, "'<'");
         let type_node = self.parse_field_type()?;
         expect_token!(self, Greater, "'>'");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(SetTypeNode {
             cpp_type,
             type_node,
+            range,
         })
     }
 
     fn parse_list_type(&mut self) -> Option<ListTypeNode> {
         // ListType ::= 'list' CppType? '<' FieldType '>'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, List, "'list'");
         let cpp_type = self.opt_parse_cpp_type();
 
         expect!(self, TokenKind::Less, "'<'");
         let type_node = self.parse_field_type()?;
         expect_token!(self, Greater, "'>'");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(ListTypeNode {
             cpp_type,
             type_node,
+            range,
         })
     }
 
@@ -291,13 +343,16 @@ impl Parser {
         // ConstValue ::= IntConstant | DoubleConstant | Literal | Identifier | ConstList | ConstMap
 
         let next_token = self.peek_next_token();
-        match next_token.kind {
+        match &next_token.kind {
             TokenKind::IntConstant(value)
             | TokenKind::DoubleConstant(value)
             | TokenKind::Literal(value)
             | TokenKind::Identifier(value) => {
                 self.eat_next_token();
-                Some(ConstValueNode { value })
+                Some(ConstValueNode {
+                    value: value.clone(),
+                    range: next_token.range(),
+                })
             }
             TokenKind::Lbrack => self.parse_const_list(),
             TokenKind::Lbrace => self.parse_const_map(),
@@ -315,6 +370,7 @@ impl Parser {
     fn parse_const_list(&mut self) -> Option<ConstValueNode> {
         // ConstList ::= '[' (ConstValue ListSeparator?)* ']'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Lbrack, "'['");
         let mut values = Vec::new();
         loop {
@@ -322,22 +378,28 @@ impl Parser {
             values.push(self.parse_const_value()?.value);
             opt_list_separator!(self);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(ConstValueNode {
             value: format!("[{}]", values.join(", ")),
+            range,
         })
     }
 
     fn parse_const_map(&mut self) -> Option<ConstValueNode> {
         // ConstMap ::= '{' ConstMapValue* '}'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Lbrace, "'{'");
         let mut pairs = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rbrace);
             pairs.push(self.parse_const_map_value()?);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(ConstValueNode {
             value: format!(
                 "{{{}}}",
@@ -347,6 +409,7 @@ impl Parser {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
+            range,
         })
     }
 
@@ -364,20 +427,25 @@ impl Parser {
     fn parse_typedef(&mut self) -> Option<TypedefNode> {
         // Typedef ::= 'typedef' DefinitionType Identifier
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Typedef, "'typedef'");
         let definition_type = self.parse_definition_type()?;
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(TypedefNode {
             name,
             definition_type,
+            range,
         })
     }
 
     fn parse_enum(&mut self) -> Option<EnumNode> {
         // Enum ::= 'enum' Identifier '{' EnumValue* '}'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Enum, "'enum'");
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
@@ -388,13 +456,20 @@ impl Parser {
             break_opt_token_or_eof!(self, Rbrace);
             values.push(self.parse_enum_value()?);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(EnumNode { name, values })
+        let range = Range { start, end };
+        Some(EnumNode {
+            name,
+            values,
+            range,
+        })
     }
 
     fn parse_enum_value(&mut self) -> Option<EnumValueNode> {
         // EnumValue ::= Identifier ('=' IntConstant)? ListSeparator?
 
+        let start = self.peek_next_token().range().start;
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
 
@@ -406,18 +481,21 @@ impl Parser {
             value = Some(
                 extract_token_value!(self, token, IntConstant, "integer constant")
                     .parse::<i32>()
-                    .unwrap(),
+                    .unwrap_or_default(),
             );
         }
 
         opt_list_separator!(self);
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(EnumValueNode { name, value })
+        let range = Range { start, end };
+        Some(EnumValueNode { name, value, range })
     }
 
     fn parse_struct(&mut self) -> Option<StructNode> {
         // Struct ::= 'struct' Identifier '{' Field* '}'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Struct, "'struct'");
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
@@ -428,8 +506,14 @@ impl Parser {
             break_opt_token_or_eof!(self, Rbrace);
             fields.push(self.parse_field()?);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(StructNode { name, fields })
+        let range = Range { start, end };
+        Some(StructNode {
+            name,
+            fields,
+            range,
+        })
     }
 
     fn parse_field(&mut self) -> Option<FieldNode> {
@@ -437,13 +521,14 @@ impl Parser {
         // FieldID ::= IntConstant ':'
         // FieldReq ::= 'required' | 'optional'
 
+        let start = self.peek_next_token().range().start;
         let mut field_id = None;
         let mut field_req = None;
 
         let next_token = self.peek_next_token();
         match next_token.kind {
             TokenKind::IntConstant(id) => {
-                field_id = Some(id.parse().unwrap());
+                field_id = Some(id.parse().unwrap_or_default());
                 self.eat_next_token();
                 expect_token!(self, Colon, "':'");
             }
@@ -487,19 +572,23 @@ impl Parser {
         }
 
         opt_list_separator!(self);
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(FieldNode {
             field_id,
             field_req,
             field_type,
             name: identifier,
             default_value,
+            range,
         })
     }
 
     fn parse_union(&mut self) -> Option<UnionNode> {
         // Union ::= 'union' Identifier '{' Field* '}'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Union, "'union'");
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
@@ -510,13 +599,20 @@ impl Parser {
             break_opt_token_or_eof!(self, Rbrace);
             fields.push(self.parse_field()?);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(UnionNode { name, fields })
+        let range = Range { start, end };
+        Some(UnionNode {
+            name,
+            fields,
+            range,
+        })
     }
 
     fn parse_exception(&mut self) -> Option<ExceptionNode> {
         // Exception ::= 'exception' Identifier '{' Field* '}'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Exception, "'exception'");
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
@@ -527,13 +623,20 @@ impl Parser {
             break_opt_token_or_eof!(self, Rbrace);
             fields.push(self.parse_field()?);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
-        Some(ExceptionNode { name, fields })
+        let range = Range { start, end };
+        Some(ExceptionNode {
+            name,
+            fields,
+            range,
+        })
     }
 
     fn parse_service(&mut self) -> Option<ServiceNode> {
         // Service ::= 'service' Identifier ( 'extends' Identifier )? '{' Function* '}'
 
+        let start = self.peek_next_token().range().start;
         expect_token!(self, Service, "'service'");
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
@@ -557,17 +660,21 @@ impl Parser {
             break_opt_token_or_eof!(self, Rbrace);
             functions.push(self.parse_function()?);
         }
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(ServiceNode {
             name,
             extends,
             functions,
+            range,
         })
     }
 
     fn parse_function(&mut self) -> Option<FunctionNode> {
         // Function ::= 'oneway'? FunctionType Identifier '(' Field* ')' Throws? ListSeparator?
 
+        let start = self.peek_next_token().range().start;
         let mut is_oneway = false;
         let next_token = self.peek_next_token();
         if next_token.kind == TokenKind::Oneway {
@@ -592,13 +699,16 @@ impl Parser {
             throws = Some(self.parse_throws()?);
         }
         opt_list_separator!(self);
+        let end = self.prev_token().unwrap_or_default().range().end;
 
+        let range = Range { start, end };
         Some(FunctionNode {
             is_oneway,
             return_type,
             name,
             parameters,
             throws,
+            range,
         })
     }
 
@@ -609,6 +719,7 @@ impl Parser {
             self.eat_next_token();
             return Some(Box::new(BaseTypeNode {
                 name: "void".to_string(),
+                range: next_token.range(),
             }));
         }
         self.parse_field_type()
@@ -632,7 +743,7 @@ impl Parser {
 // error handling
 impl Parser {
     fn add_error(&mut self, message: String, range: Range) {
-        self.errors.push(ParseError { range, message });
+        self.errors.push(Error { range, message });
     }
 
     fn recover_to_next_definition(&mut self) {
@@ -664,14 +775,16 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::scanner::FileInput;
+    use crate::analyzer::scanner::FileInput;
 
     use super::*;
 
     #[test]
     fn parse_success() {
         let work_path = std::env::current_dir().unwrap();
-        let file_path = work_path.join(std::path::Path::new("./lib/test_file/ThriftTest.thrift"));
+        let file_path = work_path.join(std::path::Path::new(
+            "./lib/analyzer/test_file/ThriftTest.thrift",
+        ));
         let mut parser = Parser::new(FileInput::new(&file_path));
 
         let document = parser.parse();
@@ -687,7 +800,7 @@ mod tests {
     fn parse_failed() {
         let work_path = std::env::current_dir().unwrap();
         let file_path = work_path.join(std::path::Path::new(
-            "./lib/test_file/InvalidThriftTest.thrift",
+            "./lib/analyzer/test_file/InvalidThriftTest.thrift",
         ));
         let mut parser = Parser::new(FileInput::new(&file_path));
 

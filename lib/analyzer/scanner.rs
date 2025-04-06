@@ -1,21 +1,21 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use crate::token::{self, TokenKind};
+use crate::analyzer::{
+    base::{Error, Location},
+    token::{Token, TokenKind},
+};
 
+/// Represents a Thrift scanner.
 pub struct Scanner {
     input: Vec<char>,    // input data
     path: PathBuf,       // input data path
     state: ScannerState, // current state
 }
 
-#[derive(Debug)]
-pub enum ScanError {
-    InvalidChar(char),
-    InvalidString(String),
-    UnclosedString(String),
-    UnclosedBlockComment(String),
-}
-
+/// Represents a Thrift scanner state.
 #[derive(Clone, Copy)]
 pub struct ScannerState {
     offset: usize, // next reading offset
@@ -23,22 +23,24 @@ pub struct ScannerState {
     column: usize, // current column offset
 }
 
+/// Represents a input source.
 pub trait Input {
+    /// Returns the content of the input source.
     fn content(&self) -> Vec<char>;
+    /// Returns the path of the input source.
     fn path(&self) -> PathBuf;
 }
 
+/// Represents a file input source.
 pub struct FileInput {
     path: PathBuf,
     content: Vec<char>,
 }
 
 impl FileInput {
+    /// Creates a new file input source.
     pub fn new(file_path: &Path) -> Self {
-        let content = std::fs::read_to_string(&file_path)
-            .unwrap()
-            .chars()
-            .collect();
+        let content = fs::read_to_string(&file_path).unwrap().chars().collect();
 
         FileInput {
             path: file_path.to_path_buf(),
@@ -46,6 +48,7 @@ impl FileInput {
         }
     }
 
+    /// Creates a new file input source with content.
     pub fn new_with_content(file_path: &Path, content: &[char]) -> Self {
         FileInput {
             path: file_path.to_path_buf(),
@@ -64,6 +67,7 @@ impl Input for FileInput {
     }
 }
 
+/// Represents an empty input source.
 pub struct EmptyInput;
 
 impl Input for EmptyInput {
@@ -77,7 +81,7 @@ impl Input for EmptyInput {
 }
 
 impl Scanner {
-    // create a new scanner with the given input data.
+    /// Creates a new scanner with the given input source.
     pub fn new(input: impl Input) -> Self {
         Scanner {
             input: input.content(),
@@ -90,8 +94,8 @@ impl Scanner {
         }
     }
 
-    // scan the next token and return it.
-    pub fn scan(&mut self) -> (token::Token, Option<ScanError>) {
+    /// Scans the next token and returns it.
+    pub fn scan(&mut self) -> (Token, Option<Error>) {
         let mut token = None;
         let mut err = None;
 
@@ -120,13 +124,13 @@ impl Scanner {
                 }
                 '/' => {
                     if self.state.offset + 1 >= self.input.len() {
-                        let location = token::Location {
+                        let location = Location {
                             line: self.state.line,
                             column: self.state.column,
                             path: self.path.clone(),
                         };
-                        token = Some(token::Token {
-                            kind: token::TokenKind::Invalid(ch),
+                        token = Some(Token {
+                            kind: TokenKind::Invalid(ch),
                             location,
                         });
                         self.state.offset += 1;
@@ -137,13 +141,13 @@ impl Scanner {
                     let start = self.state.offset;
                     let (offset, ok) = self.scan_line_comment();
                     if ok {
-                        let location = token::Location {
+                        let location = Location {
                             line: self.state.line,
                             column: self.state.column,
                             path: self.path.clone(),
                         };
-                        token = Some(token::Token {
-                            kind: token::TokenKind::Comment(
+                        token = Some(Token {
+                            kind: TokenKind::Comment(
                                 self.input[start + 2..start + offset]
                                     .iter()
                                     .collect::<String>(),
@@ -157,14 +161,14 @@ impl Scanner {
                     }
 
                     let (offset, line_offset, column_offset, ok) = self.scan_block_comment();
-                    let location = token::Location {
+                    let location = Location {
                         line: self.state.line,
                         column: self.state.column,
                         path: self.path.clone(),
                     };
                     if ok {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::BlockComment(
+                        token = Some(Token {
+                            kind: TokenKind::BlockComment(
                                 self.input[start + 2..start + offset - 2]
                                     .iter()
                                     .collect::<String>(),
@@ -173,11 +177,15 @@ impl Scanner {
                         })
                     } else {
                         let value = self.input[start..start + offset].iter().collect::<String>();
-                        err = Some(ScanError::UnclosedBlockComment(value.clone()));
-                        token = Some(token::Token {
-                            kind: token::TokenKind::InvalidString(value),
+                        let tk = Token {
+                            kind: TokenKind::InvalidString(value.clone()),
                             location,
+                        };
+                        err = Some(Error {
+                            range: tk.range(),
+                            message: format!("Unclosed block comment: {}", value),
                         });
+                        token = Some(tk);
                     }
 
                     if line_offset > 0 {
@@ -192,20 +200,20 @@ impl Scanner {
                     let start = self.state.offset;
                     let offset = self.scan_identifier();
                     let value = self.input[start..start + offset].iter().collect::<String>();
-                    let location = token::Location {
+                    let location = Location {
                         line: self.state.line,
                         column: self.state.column,
                         path: self.path.clone(),
                     };
 
                     if let Some(tok) = TokenKind::from_string(&value) {
-                        token = Some(token::Token {
+                        token = Some(Token {
                             kind: tok,
                             location,
                         });
                     } else {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::Identifier(value),
+                        token = Some(Token {
+                            kind: TokenKind::Identifier(value),
                             location,
                         });
                     }
@@ -219,23 +227,27 @@ impl Scanner {
                     let value = self.input[start + 1..start + offset - 1]
                         .iter()
                         .collect::<String>();
-                    let location = token::Location {
+                    let location = Location {
                         line: self.state.line,
                         column: self.state.column,
                         path: self.path.clone(),
                     };
 
                     if ok {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::Literal(value),
+                        token = Some(Token {
+                            kind: TokenKind::Literal(value),
                             location,
                         });
                     } else {
-                        err = Some(ScanError::UnclosedString(value.clone()));
-                        token = Some(token::Token {
-                            kind: token::TokenKind::InvalidString(value),
+                        let tk = Token {
+                            kind: TokenKind::InvalidString(value.clone()),
                             location,
+                        };
+                        err = Some(Error {
+                            range: tk.range(),
+                            message: format!("Unclosed string: {}", value),
                         });
+                        token = Some(tk);
                     }
 
                     self.state.offset += offset;
@@ -264,25 +276,25 @@ impl Scanner {
                     }
 
                     let value = self.input[start..start + offset].iter().collect::<String>();
-                    let location = token::Location {
+                    let location = Location {
                         line: self.state.line,
                         column: self.state.column,
                         path: self.path.clone(),
                     };
 
                     if int_ok {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::IntConstant(value),
+                        token = Some(Token {
+                            kind: TokenKind::IntConstant(value),
                             location,
                         });
                     } else if double_ok {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::DoubleConstant(value),
+                        token = Some(Token {
+                            kind: TokenKind::DoubleConstant(value),
                             location,
                         });
                     } else {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::InvalidString(value),
+                        token = Some(Token {
+                            kind: TokenKind::InvalidString(value),
                             location,
                         })
                     }
@@ -294,20 +306,20 @@ impl Scanner {
                     let start = self.state.offset;
                     let (offset, double_ok) = self.scan_double_constant();
                     let value = self.input[start..start + offset].iter().collect::<String>();
-                    let location = token::Location {
+                    let location = Location {
                         line: self.state.line,
                         column: self.state.column,
                         path: self.path.clone(),
                     };
 
                     if !double_ok {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::InvalidString(value),
+                        token = Some(Token {
+                            kind: TokenKind::InvalidString(value),
                             location,
                         })
                     } else {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::DoubleConstant(value),
+                        token = Some(Token {
+                            kind: TokenKind::DoubleConstant(value),
                             location,
                         });
                     }
@@ -316,20 +328,20 @@ impl Scanner {
                     self.state.column += offset;
                 }
                 _ => {
-                    let location = token::Location {
+                    let location = Location {
                         line: self.state.line,
                         column: self.state.column,
                         path: self.path.clone(),
                     };
 
                     if let Some(tok) = TokenKind::from_char(ch) {
-                        token = Some(token::Token {
+                        token = Some(Token {
                             kind: tok,
                             location,
                         });
                     } else {
-                        token = Some(token::Token {
-                            kind: token::TokenKind::Invalid(ch),
+                        token = Some(Token {
+                            kind: TokenKind::Invalid(ch),
                             location,
                         })
                     }
@@ -341,6 +353,29 @@ impl Scanner {
         }
 
         (token.unwrap_or(self.eof()), err)
+    }
+
+    /// Skips to the next line.
+    pub fn skip_to_next_line(&mut self) {
+        while self.state.offset < self.input.len() {
+            let ch = self.input[self.state.offset] as char;
+            self.state.offset += 1;
+
+            if ch == '\n' {
+                self.state.line += 1;
+                self.state.column = 1;
+                break;
+            } else if ch == '\r' {
+                if self.state.offset < self.input.len()
+                    && self.input[self.state.offset] as char == '\n'
+                {
+                    self.state.offset += 1;
+                }
+                self.state.line += 1;
+                self.state.column = 1;
+                break;
+            }
+        }
     }
 }
 
@@ -365,10 +400,10 @@ impl Scanner {
 }
 
 impl Scanner {
-    fn eof(&self) -> token::Token {
-        token::Token {
-            kind: token::TokenKind::Eof,
-            location: token::Location {
+    fn eof(&self) -> Token {
+        Token {
+            kind: TokenKind::Eof,
+            location: Location {
                 line: self.state.line,
                 column: self.state.column,
                 path: self.path.clone(),
@@ -598,39 +633,18 @@ impl Scanner {
 
         (offset, line_offset, column_offset, true)
     }
-
-    /// 跳过当前行的所有内容，直接移动到下一行的开始位置
-    pub fn skip_to_next_line(&mut self) {
-        while self.state.offset < self.input.len() {
-            let ch = self.input[self.state.offset] as char;
-            self.state.offset += 1;
-
-            if ch == '\n' {
-                self.state.line += 1;
-                self.state.column = 1;
-                break;
-            } else if ch == '\r' {
-                if self.state.offset < self.input.len()
-                    && self.input[self.state.offset] as char == '\n'
-                {
-                    self.state.offset += 1;
-                }
-                self.state.line += 1;
-                self.state.column = 1;
-                break;
-            }
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::{env, path::Path};
+
     use super::*;
 
     #[test]
     fn test_scan() {
-        let work_path = std::env::current_dir().unwrap();
-        let file_path = work_path.join(std::path::Path::new("./lib/test_file/ThriftTest.thrift"));
+        let work_path = env::current_dir().unwrap();
+        let file_path = work_path.join(Path::new("./lib/analyzer/test_file/ThriftTest.thrift"));
         let mut scanner = Scanner::new(FileInput::new(&file_path));
 
         loop {

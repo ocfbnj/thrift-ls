@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::token::{self, Location};
+use crate::analyzer::base::{self, Location};
 
 // represents request message or notification message
 #[derive(Debug, Serialize, Deserialize)]
@@ -147,8 +147,8 @@ pub struct Range {
     pub end: Position,
 }
 
-impl From<token::Range> for Range {
-    fn from(value: token::Range) -> Self {
+impl From<base::Range> for Range {
+    fn from(value: base::Range) -> Self {
         Range {
             start: value.start.into(),
             end: value.end.into(),
