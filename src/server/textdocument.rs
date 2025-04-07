@@ -6,8 +6,9 @@ use url::Url;
 use thrift_ls::{
     analyzer::Analyzer,
     lsp::{
-        BaseMessage, Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, PublishDiagnosticsParams,
+        BaseMessage, BaseResponse, Diagnostic, DidChangeTextDocumentParams,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, PublishDiagnosticsParams,
+        SemanticTokens, SemanticTokensParams,
     },
 };
 
@@ -85,6 +86,47 @@ pub async fn did_close<W: AsyncWriteExt + Unpin + Send>(
             return;
         }
     };
+}
+
+pub async fn semantic_tokens_full<W: AsyncWriteExt + Unpin + Send>(
+    message: BaseMessage,
+    writer: MessageWriter<W>,
+    analyzer: Arc<Mutex<Analyzer>>,
+) {
+    let params = match message.params {
+        Some(params) => match serde_json::from_value::<SemanticTokensParams>(params) {
+            Ok(params) => params,
+            Err(e) => {
+                log::error!("Failed to parse semantic tokens params: {}", e);
+                return;
+            }
+        },
+        None => {
+            log::error!("Missing params in semantic tokens request");
+            return;
+        }
+    };
+
+    let path = match parse_uri_to_path(&params.text_document.uri) {
+        Some(path) => path,
+        None => {
+            return;
+        }
+    };
+
+    let analyzer = analyzer.lock().await;
+    let tokens = analyzer.semantic_tokens(&path).cloned().unwrap_or_default();
+
+    let response = BaseResponse {
+        jsonrpc: "2.0".to_string(),
+        id: message.id,
+        result: serde_json::to_value(SemanticTokens { data: tokens }).ok(),
+        error: None,
+    };
+
+    if let Err(e) = writer.write_message(&response).await {
+        log::error!("Failed to write response: {}", e);
+    }
 }
 
 async fn diagnostics<W: AsyncWriteExt + Unpin + Send>(

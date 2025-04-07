@@ -15,12 +15,18 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use crate::analyzer::{
-    ast::{DocumentNode, IncludeNode, Node},
-    base::Error,
-    parser::Parser,
-    scanner::{EmptyInput, FileInput},
-    symbol::SymbolTable,
+use crate::{
+    analyzer::{
+        ast::{
+            DocumentNode, ExceptionNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode,
+            Node, ServiceNode, SetTypeNode, StructNode, UnionNode,
+        },
+        base::Error,
+        parser::Parser,
+        scanner::{EmptyInput, FileInput},
+        symbol::SymbolTable,
+    },
+    lsp,
 };
 
 /// Analyzer for Thrift files.
@@ -32,6 +38,7 @@ pub struct Analyzer {
     symbol_tables: HashMap<PathBuf, Arc<RwLock<SymbolTable>>>,
     errors: HashMap<PathBuf, Vec<Error>>,
     file_dependencies: HashMap<PathBuf, Vec<(PathBuf, IncludeNode)>>,
+    semantic_tokens: HashMap<PathBuf, Vec<u32>>,
 }
 
 impl Analyzer {
@@ -44,6 +51,7 @@ impl Analyzer {
             symbol_tables: HashMap::new(),
             errors: HashMap::new(),
             file_dependencies: HashMap::new(),
+            semantic_tokens: HashMap::new(),
         }
     }
 
@@ -86,11 +94,19 @@ impl Analyzer {
                     .extend(symbol_table.read().unwrap().errors().to_vec());
             }
         }
+
+        // generate semantic tokens
+        self.generate_semantic_tokens();
     }
 
     /// Get the errors.
     pub fn errors(&self) -> &HashMap<PathBuf, Vec<Error>> {
         &self.errors
+    }
+
+    /// Get semantic tokens for a specific file.
+    pub fn semantic_tokens(&self, path: &PathBuf) -> Option<&Vec<u32>> {
+        self.semantic_tokens.get(path)
     }
 
     /// Recursively parse AST and build symbol tables for a file.
@@ -219,5 +235,131 @@ impl Analyzer {
         }
 
         true
+    }
+
+    /// Generate semantic tokens for a document.
+    fn generate_semantic_tokens(&mut self) {
+        let identifier_field_types: Vec<(PathBuf, Vec<&IdentifierNode>)> = self
+            .find_identifier_field_types()
+            .into_iter()
+            .map(|(path, identifiers)| (path.clone(), identifiers))
+            .collect();
+
+        let mut new_tokens = HashMap::new();
+        for (path, identifiers) in identifier_field_types {
+            let tokens = self.convert_identifiers_to_semantic_tokens(identifiers);
+            new_tokens.insert(path, tokens);
+        }
+        self.semantic_tokens = new_tokens;
+    }
+
+    /// Find all IdentifierNode instances used as field types in the document nodes.
+    fn find_identifier_field_types(&self) -> HashMap<PathBuf, Vec<&IdentifierNode>> {
+        let mut result = HashMap::new();
+
+        for (path, document_node) in &self.document_nodes {
+            for definition in &document_node.definitions {
+                let definition = definition.as_ref().as_any();
+
+                if let Some(struct_node) = definition.downcast_ref::<StructNode>() {
+                    for field in &struct_node.fields {
+                        self.collect_identifier_field_types(&field.field_type, &mut result, path);
+                    }
+                } else if let Some(union_node) = definition.downcast_ref::<UnionNode>() {
+                    for field in &union_node.fields {
+                        self.collect_identifier_field_types(&field.field_type, &mut result, path);
+                    }
+                } else if let Some(exception_node) = definition.downcast_ref::<ExceptionNode>() {
+                    for field in &exception_node.fields {
+                        self.collect_identifier_field_types(&field.field_type, &mut result, path);
+                    }
+                } else if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
+                    for function in &service_node.functions {
+                        self.collect_identifier_field_types(
+                            &function.return_type,
+                            &mut result,
+                            path,
+                        );
+                        for param in &function.parameters {
+                            self.collect_identifier_field_types(
+                                &param.field_type,
+                                &mut result,
+                                path,
+                            );
+                        }
+                        if let Some(throws) = &function.throws {
+                            for throw in throws {
+                                self.collect_identifier_field_types(
+                                    &throw.field_type,
+                                    &mut result,
+                                    path,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Collect all IdentifierNode instances used as field types in the document nodes.
+    fn collect_identifier_field_types<'a>(
+        &'a self,
+        field_type: &'a Box<dyn Node>,
+        result: &mut HashMap<PathBuf, Vec<&'a IdentifierNode>>,
+        path: &PathBuf,
+    ) {
+        let field_type = field_type.as_ref().as_any();
+        if let Some(identifier) = field_type.downcast_ref::<IdentifierNode>() {
+            result
+                .entry(path.clone())
+                .or_insert_with(Vec::new)
+                .push(identifier);
+        } else if let Some(list_type) = field_type.downcast_ref::<ListTypeNode>() {
+            self.collect_identifier_field_types(&list_type.type_node, result, path);
+        } else if let Some(set_type) = field_type.downcast_ref::<SetTypeNode>() {
+            self.collect_identifier_field_types(&set_type.type_node, result, path);
+        } else if let Some(map_type) = field_type.downcast_ref::<MapTypeNode>() {
+            self.collect_identifier_field_types(&map_type.key_type, result, path);
+            self.collect_identifier_field_types(&map_type.value_type, result, path);
+        }
+    }
+
+    /// Convert a vector of IdentifierNode references to semantic tokens.
+    fn convert_identifiers_to_semantic_tokens(
+        &self,
+        identifiers: Vec<&IdentifierNode>,
+    ) -> Vec<u32> {
+        let mut tokens = Vec::new();
+        let mut prev_line = 0;
+        let mut prev_char = 0;
+
+        for identifier in identifiers {
+            let range = lsp::Range::from(identifier.range());
+
+            let line = range.start.line as u32;
+            let char = range.start.character as u32;
+            let length = identifier.name.len() as u32;
+
+            // deltaLine: line number relative to the previous token
+            let delta_line = line - prev_line;
+            // deltaStart: start character relative to the previous token
+            let delta_start = if delta_line == 0 {
+                char - prev_char
+            } else {
+                char
+            };
+            // length: length of the token
+            // tokenType: 0 for type (as defined in SemanticTokensLegend)
+            // tokenModifiers: 0 for no modifiers
+            tokens.extend_from_slice(&[delta_line, delta_start, length, 0, 0]);
+
+            prev_line = line;
+            prev_char = char;
+        }
+
+        tokens
     }
 }

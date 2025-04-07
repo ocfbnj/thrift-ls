@@ -12,7 +12,8 @@ use rw::{MessageReader, MessageWriter};
 use thrift_ls::{
     analyzer::Analyzer,
     lsp::{
-        BaseMessage, BaseResponse, InitializeParams, InitializeResult, ResponseError, ServerInfo,
+        BaseMessage, BaseResponse, InitializeParams, InitializeResult, ResponseError,
+        SemanticTokensLegend, SemanticTokensOptions, ServerInfo,
     },
 };
 
@@ -84,6 +85,13 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin + Send + 'static> Languag
                 "textDocument/didSave" => {
                     // do nothing
                 }
+                "textDocument/semanticTokens/full" => {
+                    let writer = self.writer.clone();
+                    let analyzer = self.analyzer.clone();
+                    tokio::spawn(async move {
+                        textdocument::semantic_tokens_full(message, writer, analyzer).await;
+                    });
+                }
                 method => {
                     if method.starts_with("$/") {
                         if !message.is_notification() {
@@ -124,9 +132,19 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin + Send + 'static> Languag
         }
 
         self.initialized = true;
+
+        let semantic_tokens_options = SemanticTokensOptions {
+            legend: SemanticTokensLegend {
+                token_types: vec!["type".to_string()],
+                token_modifiers: vec![],
+            },
+            full: Some(true),
+        };
+
         let result = InitializeResult {
             capabilities: serde_json::json!({
                 "textDocumentSync": 1, // Documents are synced by always sending the full content of the document.
+                "semanticTokensProvider": semantic_tokens_options,
             }),
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").to_string(),
