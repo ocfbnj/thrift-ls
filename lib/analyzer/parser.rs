@@ -464,7 +464,11 @@ impl<'a> Parser<'a> {
         let mut values = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rbrace);
-            values.push(self.parse_enum_value()?);
+            if let Some(value) = self.parse_enum_value() {
+                values.push(value);
+            } else {
+                self.recover_to_next_line();
+            }
         }
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -519,7 +523,11 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rbrace);
-            fields.push(self.parse_field()?);
+            if let Some(field) = self.parse_field() {
+                fields.push(field);
+            } else {
+                self.recover_to_next_line();
+            }
         }
         let ext = self.opt_parse_ext();
         let end = self.prev_token().unwrap_or_default().range().end;
@@ -612,7 +620,11 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rbrace);
-            fields.push(self.parse_field()?);
+            if let Some(field) = self.parse_field() {
+                fields.push(field);
+            } else {
+                self.recover_to_next_line();
+            }
         }
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -635,7 +647,11 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rbrace);
-            fields.push(self.parse_field()?);
+            if let Some(field) = self.parse_field() {
+                fields.push(field);
+            } else {
+                self.recover_to_next_line();
+            }
         }
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -671,7 +687,11 @@ impl<'a> Parser<'a> {
         let mut functions = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rbrace);
-            functions.push(self.parse_function()?);
+            if let Some(function) = self.parse_function() {
+                functions.push(function);
+            } else {
+                self.recover_to_next_line();
+            }
         }
         let end = self.prev_token().unwrap_or_default().range().end;
 

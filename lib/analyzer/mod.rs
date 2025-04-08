@@ -33,7 +33,6 @@ pub struct Analyzer {
 
     document_nodes: HashMap<PathBuf, DocumentNode>,
     symbol_tables: HashMap<PathBuf, Rc<RefCell<SymbolTable>>>,
-    file_dependencies: HashMap<PathBuf, Vec<(PathBuf, IncludeNode)>>,
 
     diagnostics: HashMap<PathBuf, Vec<Diagnostic>>,
     semantic_tokens: HashMap<PathBuf, Vec<u32>>,
@@ -46,7 +45,6 @@ impl Analyzer {
             documents: HashMap::new(),
             document_nodes: HashMap::new(),
             symbol_tables: HashMap::new(),
-            file_dependencies: HashMap::new(),
             diagnostics: HashMap::new(),
             semantic_tokens: HashMap::new(),
         }
@@ -54,8 +52,9 @@ impl Analyzer {
 
     /// Sync a document.
     pub fn sync_document(&mut self, path: PathBuf, content: &str) {
-        self.documents.insert(path, content.chars().collect());
-        self.analyze();
+        self.documents
+            .insert(path.clone(), content.chars().collect());
+        self.analyze(&path);
     }
 
     /// Get the diagnostics for all files.
@@ -70,33 +69,21 @@ impl Analyzer {
 }
 
 impl Analyzer {
-    /// Analyze all documents.
-    fn analyze(&mut self) {
+    /// Analyze a document.
+    fn analyze(&mut self, path: &PathBuf) {
         // clear previous state
-        self.document_nodes.clear();
-        self.symbol_tables.clear();
-        self.file_dependencies.clear();
-        self.diagnostics.clear();
-        self.semantic_tokens.clear();
+        self.document_nodes.remove(path);
+        self.symbol_tables.remove(path);
+        self.diagnostics.remove(path);
+        self.semantic_tokens.remove(path);
 
-        // parse all files
-        self.documents
-            .keys()
-            .cloned()
-            .collect::<Vec<_>>()
-            .iter()
-            .for_each(|path| {
-                self.parse_file(path, Rc::new(RefCell::new(HashSet::new())), None);
-            });
-
-        self.type_checking();
-        self.generate_semantic_tokens();
-
-        log::debug!("symbol tables: {:#?}", self.symbol_tables);
+        self.parse_document(path, Rc::new(RefCell::new(HashSet::new())), None);
+        self.type_checking(path);
+        self.generate_semantic_tokens(path);
     }
 
     /// Recursively parse AST and build symbol tables for a file.
-    fn parse_file(
+    fn parse_document(
         &mut self,
         path: &PathBuf,
         visited: Rc<RefCell<HashSet<PathBuf>>>,
@@ -175,7 +162,7 @@ impl Analyzer {
 
         // recursively parse dependencies
         for (dep_path, include_node) in dependencies.iter() {
-            let res = self.parse_file(dep_path, visited.clone(), Some((path, include_node)));
+            let res = self.parse_document(dep_path, visited.clone(), Some((path, include_node)));
             visited.borrow_mut().remove(dep_path);
             if !res {
                 continue;
@@ -195,39 +182,53 @@ impl Analyzer {
 
         true
     }
+}
 
+/// Type checking
+impl Analyzer {
+    fn type_checking(&mut self, path: &PathBuf) {
+        if let Some(document_node) = self.document_nodes.get(path) {
+            if let Some(symbol_table) = self.symbol_tables.get_mut(path) {
+                symbol_table
+                    .borrow_mut()
+                    .check_document_types(document_node);
+
+                self.diagnostics.entry(path.clone()).or_default().extend(
+                    symbol_table
+                        .borrow()
+                        .errors()
+                        .iter()
+                        .map(|e| e.clone().into()),
+                );
+            }
+        }
+    }
+}
+
+/// Semantic tokens
+impl Analyzer {
     /// Generate semantic tokens for a document.
-    fn generate_semantic_tokens(&mut self) {
-        let field_type_identifiers = self.find_field_type_identifiers();
-        let function_identifiers = self.find_function_identifiers();
+    fn generate_semantic_tokens(&mut self, path: &PathBuf) {
+        let field_type_identifiers = self.find_field_type_identifiers(path);
+        let function_identifiers = self.find_function_identifiers(path);
 
-        let mut identifiers: HashMap<PathBuf, Vec<(&IdentifierNode, u32)>> = HashMap::new();
-        for (path, ids) in field_type_identifiers {
-            identifiers
-                .entry(path)
-                .or_default()
-                .extend(ids.into_iter().map(|x| (x, 0)));
+        let mut identifiers: Vec<(&IdentifierNode, u32)> = Vec::new();
+        for id in field_type_identifiers {
+            identifiers.push((id, 0));
         }
-        for (path, ids) in function_identifiers {
-            identifiers
-                .entry(path)
-                .or_default()
-                .extend(ids.into_iter().map(|x| (x, 1)));
+        for id in function_identifiers {
+            identifiers.push((id, 1));
         }
 
-        let mut new_tokens = HashMap::new();
-        for (path, ids) in identifiers {
-            new_tokens.insert(path, self.convert_identifiers_to_semantic_tokens(ids));
-        }
-
-        self.semantic_tokens = new_tokens;
+        let new_tokens = self.convert_identifiers_to_semantic_tokens(identifiers);
+        self.semantic_tokens.insert(path.clone(), new_tokens);
     }
 
     /// Find all IdentifierNode instances used as field types in the document nodes.
-    fn find_field_type_identifiers(&self) -> HashMap<PathBuf, Vec<&IdentifierNode>> {
-        let mut result = HashMap::new();
+    fn find_field_type_identifiers(&self, path: &PathBuf) -> Vec<&IdentifierNode> {
+        let mut result = Vec::new();
 
-        for (path, document_node) in &self.document_nodes {
+        if let Some(document_node) = self.document_nodes.get(path) {
             for definition in &document_node.definitions {
                 let definition = definition.as_ref().as_any();
 
@@ -278,15 +279,12 @@ impl Analyzer {
     fn collect_field_type_identifiers<'a>(
         &'a self,
         field_type: &'a Box<dyn Node>,
-        result: &mut HashMap<PathBuf, Vec<&'a IdentifierNode>>,
+        result: &mut Vec<&'a IdentifierNode>,
         path: &PathBuf,
     ) {
         let field_type = field_type.as_ref().as_any();
         if let Some(identifier) = field_type.downcast_ref::<IdentifierNode>() {
-            result
-                .entry(path.clone())
-                .or_insert_with(Vec::new)
-                .push(identifier);
+            result.push(identifier);
         } else if let Some(list_type) = field_type.downcast_ref::<ListTypeNode>() {
             self.collect_field_type_identifiers(&list_type.type_node, result, path);
         } else if let Some(set_type) = field_type.downcast_ref::<SetTypeNode>() {
@@ -336,43 +334,21 @@ impl Analyzer {
     }
 
     /// Find all function identifiers in the document nodes.
-    fn find_function_identifiers(&self) -> HashMap<PathBuf, Vec<&IdentifierNode>> {
-        let mut result = HashMap::new();
+    fn find_function_identifiers(&self, path: &PathBuf) -> Vec<&IdentifierNode> {
+        let mut result = Vec::new();
 
-        for (path, document_node) in &self.document_nodes {
+        if let Some(document_node) = self.document_nodes.get(path) {
             for definition in &document_node.definitions {
                 let definition = definition.as_ref().as_any();
 
                 if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
                     for function in &service_node.functions {
-                        result
-                            .entry(path.clone())
-                            .or_insert_with(Vec::new)
-                            .push(&function.identifier);
+                        result.push(&function.identifier);
                     }
                 }
             }
         }
 
         result
-    }
-
-    /// type checking
-    fn type_checking(&mut self) {
-        for (path, document_node) in self.document_nodes.iter() {
-            if let Some(symbol_table) = self.symbol_tables.get_mut(path) {
-                symbol_table
-                    .borrow_mut()
-                    .check_document_types(document_node);
-
-                self.diagnostics.entry(path.clone()).or_default().extend(
-                    symbol_table
-                        .borrow()
-                        .errors()
-                        .iter()
-                        .map(|e| e.clone().into()),
-                );
-            }
-        }
     }
 }
