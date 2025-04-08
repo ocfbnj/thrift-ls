@@ -332,17 +332,20 @@ impl<'a> Scanner<'a> {
     fn scan_literal(&mut self, delimiter: char) -> (usize, usize, bool) {
         let mut offset = 1;
         let mut line_offset = 0;
+        let mut prev_ch = delimiter;
 
         while self.state.offset + offset < self.input.len() {
             let ch = self.input[self.state.offset + offset];
             offset += 1;
 
-            if ch == delimiter {
+            if ch == delimiter && prev_ch != '\\' {
                 return (offset, line_offset, true);
             }
             if ch == '\n' {
                 line_offset += 1;
             }
+
+            prev_ch = ch;
         }
 
         (offset, line_offset, false)

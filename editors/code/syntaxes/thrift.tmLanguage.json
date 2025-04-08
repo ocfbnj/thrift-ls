@@ -19,12 +19,24 @@
         {
             "name": "string.quoted.double.thrift",
             "begin": "\"",
-            "end": "\""
+            "end": "\"",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.thrift",
+                    "match": "\\\\(n|t|r|\\\\|\"|')"
+                }
+            ]
         },
         {
             "name": "string.quoted.single.thrift",
             "begin": "'",
-            "end": "'"
+            "end": "'",
+            "patterns": [
+                {
+                    "name": "constant.character.escape.thrift",
+                    "match": "\\\\(n|t|r|\\\\|\"|')"
+                }
+            ]
         },
         {
             "name": "constant.numeric.thrift",
