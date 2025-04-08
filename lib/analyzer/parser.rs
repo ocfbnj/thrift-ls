@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     analyzer::{
         ast::{
@@ -179,10 +181,10 @@ impl<'a> Parser<'a> {
 
 // parse definitions
 impl<'a> Parser<'a> {
-    fn parse_definitions(&mut self) -> Vec<Box<dyn DefinitionNode>> {
+    fn parse_definitions(&mut self) -> Vec<Rc<dyn DefinitionNode>> {
         // Definitions ::= ( Const | Typedef | Enum | Struct | Union | Exception | Service )*
 
-        let mut definitions: Vec<Box<dyn DefinitionNode>> = Vec::new();
+        let mut definitions: Vec<Rc<dyn DefinitionNode>> = Vec::new();
 
         loop {
             parse_definition!(

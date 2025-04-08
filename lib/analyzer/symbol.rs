@@ -11,10 +11,12 @@ use crate::analyzer::{
 use super::ast::DefinitionNode;
 
 /// Symbol table for a single file.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SymbolTable {
-    types: HashMap<String, Box<dyn DefinitionNode>>,
+    types: HashMap<String, Rc<dyn DefinitionNode>>,
     includes: HashMap<String, Rc<RefCell<SymbolTable>>>,
+    path: PathBuf,
+    namespace_to_path: HashMap<String, PathBuf>,
     errors: Vec<Error>,
 }
 
@@ -24,15 +26,18 @@ impl SymbolTable {
         Self {
             types: HashMap::new(),
             includes: HashMap::new(),
+            path: PathBuf::new(),
+            namespace_to_path: HashMap::new(),
             errors: Vec::new(),
         }
     }
 
     /// Create a new symbol table from an AST.
-    pub fn new_from_ast(document: &DocumentNode) -> Self {
+    pub fn new_from_ast(path: PathBuf, document: &DocumentNode) -> Self {
         let mut table = Self::new();
+        table.path = path;
         document.definitions.iter().for_each(|definition| {
-            table.process_definition(definition.as_ref());
+            table.process_definition(definition);
         });
         table
     }
@@ -45,7 +50,8 @@ impl SymbolTable {
             .unwrap_or_default()
             .to_string();
 
-        self.includes.insert(namespace, dependency);
+        self.includes.insert(namespace.clone(), dependency);
+        self.namespace_to_path.insert(namespace, path.clone());
     }
 
     /// Get the errors.
@@ -88,10 +94,37 @@ impl SymbolTable {
             }
         }
     }
+
+    /// Find a definition of an identifier type.
+    pub fn find_definition_of_identifier_type(
+        &self,
+        path: &PathBuf,
+        identifier: &IdentifierNode,
+    ) -> Option<(PathBuf, Rc<dyn DefinitionNode>)> {
+        // check if the identifier contains a namespace (file name)
+        if let Some((namespace, type_name)) = identifier.name.split_once('.') {
+            // look up in included files
+            let included_table = self.includes.get(namespace)?;
+            // create a new identifier with just the type name
+            let type_identifier = IdentifierNode {
+                range: identifier.range(),
+                name: type_name.to_string(),
+            };
+            // get the path of the included file
+            let path = self.namespace_to_path.get(namespace)?;
+
+            return included_table
+                .borrow()
+                .find_definition_of_identifier_type(&path, &type_identifier);
+        }
+
+        // look up type in current symbol table
+        Some((path.clone(), self.types.get(&identifier.name)?.clone()))
+    }
 }
 
 impl SymbolTable {
-    fn process_definition(&mut self, definition: &dyn DefinitionNode) {
+    fn process_definition(&mut self, definition: &Rc<dyn DefinitionNode>) {
         if self.types.contains_key(definition.name()) {
             self.errors.push(Error {
                 range: definition.range(),
@@ -100,17 +133,18 @@ impl SymbolTable {
             return;
         }
 
-        self.types.insert(
-            definition.name().to_string(),
-            definition.clone_definition_box(),
-        );
+        self.types
+            .insert(definition.name().to_string(), definition.clone());
     }
 
     fn check_field_type(&mut self, field_type: &dyn Node) {
         if let Some(_) = field_type.as_any().downcast_ref::<BaseTypeNode>() {
             // base types are always valid
         } else if let Some(identifier) = field_type.as_any().downcast_ref::<IdentifierNode>() {
-            if !self.resolve_identifier_type(identifier) {
+            if self
+                .find_definition_of_identifier_type(&self.path, identifier)
+                .is_none()
+            {
                 self.errors.push(Error {
                     range: identifier.range(),
                     message: format!("Undefined type: {}", identifier.name),
@@ -129,26 +163,5 @@ impl SymbolTable {
                 message: "Invalid field type".to_string(),
             });
         }
-    }
-
-    fn resolve_identifier_type(&self, identifier: &IdentifierNode) -> bool {
-        // check if the identifier contains a namespace (file name)
-        if let Some((namespace, type_name)) = identifier.name.split_once('.') {
-            // look up in included files
-            if let Some(included_table) = self.includes.get(namespace) {
-                // create a new identifier with just the type name
-                let type_identifier = IdentifierNode {
-                    name: type_name.to_string(),
-                    range: identifier.range(),
-                };
-                return included_table
-                    .borrow()
-                    .resolve_identifier_type(&type_identifier);
-            }
-            return false;
-        }
-
-        // look up type in current symbol table
-        self.types.contains_key(&identifier.name)
     }
 }

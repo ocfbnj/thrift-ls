@@ -9,10 +9,10 @@ use rw::{MessageReader, MessageWriter};
 use thrift_ls::{
     analyzer::Analyzer,
     lsp::{
-        BaseMessage, BaseResponse, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, InitializeParams, InitializeResult, PublishDiagnosticsParams,
-        ResponseError, SemanticTokens, SemanticTokensLegend, SemanticTokensOptions,
-        SemanticTokensParams, ServerInfo,
+        BaseMessage, BaseResponse, DefinitionParams, DidChangeTextDocumentParams,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
+        Location, PublishDiagnosticsParams, ResponseError, SemanticTokens, SemanticTokensLegend,
+        SemanticTokensOptions, SemanticTokensParams, ServerInfo,
     },
 };
 
@@ -75,6 +75,9 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
                 "textDocument/semanticTokens/full" => {
                     self.semantic_tokens_full(message).await;
                 }
+                "textDocument/definition" => {
+                    self.definition(message).await;
+                }
                 method => {
                     if method.starts_with("$/") {
                         if !message.is_notification() {
@@ -128,6 +131,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
             capabilities: serde_json::json!({
                 "textDocumentSync": 1, // Documents are synced by always sending the full content of the document.
                 "semanticTokensProvider": semantic_tokens_options,
+                "definitionProvider": true,
             }),
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").to_string(),
@@ -253,9 +257,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
 
         let path = match parse_uri_to_path(&params.text_document.uri) {
             Some(path) => path,
-            None => {
-                return;
-            }
+            None => return,
         };
 
         let tokens = self
@@ -268,6 +270,47 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
             jsonrpc: "2.0".to_string(),
             id: message.id,
             result: serde_json::to_value(SemanticTokens { data: tokens }).ok(),
+            error: None,
+        };
+
+        if let Err(e) = self.writer.write_message(&response).await {
+            log::error!("Failed to write response: {}", e);
+        }
+    }
+
+    pub async fn definition(&mut self, message: BaseMessage) {
+        let params = match message.params {
+            Some(params) => match serde_json::from_value::<DefinitionParams>(params) {
+                Ok(params) => params,
+                Err(e) => {
+                    log::error!("Failed to parse definition params: {}", e);
+                    return;
+                }
+            },
+            None => {
+                log::error!("Missing params in definition request");
+                return;
+            }
+        };
+
+        let uri = match parse_uri_to_path(&params.text_document.uri) {
+            Some(x) => x,
+            None => return,
+        };
+
+        let location = self
+            .analyzer
+            .definition(&uri, params.position.into())
+            .map(|(path, definition)| (path, definition.identifier().range.clone().into()))
+            .map(|(path, range)| Location {
+                uri: path_to_uri(&path),
+                range,
+            });
+
+        let response = BaseResponse {
+            jsonrpc: "2.0".to_string(),
+            id: message.id,
+            result: serde_json::to_value(location).ok(),
             error: None,
         };
 

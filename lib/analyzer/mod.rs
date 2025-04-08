@@ -14,6 +14,9 @@ use std::{
     rc::Rc,
 };
 
+use ast::DefinitionNode;
+use base::Position;
+
 use crate::{
     analyzer::{
         ast::{
@@ -74,6 +77,20 @@ impl Analyzer {
     /// Get semantic tokens for a specific file.
     pub fn semantic_tokens(&self, path: &PathBuf) -> Option<&Vec<u32>> {
         self.semantic_tokens.get(path)
+    }
+
+    /// Get the definition at a specific position.
+    pub fn definition(
+        &self,
+        path: &PathBuf,
+        pos: Position,
+    ) -> Option<(PathBuf, Rc<dyn DefinitionNode>)> {
+        let document_node = self.document_nodes.get(path)?;
+        let identifier = self.find_identifier(document_node, pos)?;
+        let symbol_table = self.symbol_tables.get(path)?;
+        symbol_table
+            .borrow()
+            .find_definition_of_identifier_type(path, identifier)
     }
 }
 
@@ -167,7 +184,10 @@ impl Analyzer {
         }
 
         // build symbol table
-        let symbol_table = Rc::new(RefCell::new(SymbolTable::new_from_ast(&document_node)));
+        let symbol_table = Rc::new(RefCell::new(SymbolTable::new_from_ast(
+            path.clone(),
+            &document_node,
+        )));
 
         // recursively parse dependencies
         for (dep_path, include_node) in dependencies.iter() {
@@ -359,5 +379,26 @@ impl Analyzer {
         }
 
         result
+    }
+}
+
+impl Analyzer {
+    /// Find an identifier at a specific position.
+    fn find_identifier<'a>(&self, node: &'a dyn Node, pos: Position) -> Option<&'a IdentifierNode> {
+        if !node.range().contains(pos) {
+            return None;
+        }
+
+        if let Some(identifier) = node.as_any().downcast_ref::<IdentifierNode>() {
+            return Some(identifier);
+        }
+
+        for child in node.children() {
+            if let Some(identifier) = self.find_identifier(child, pos) {
+                return Some(identifier);
+            }
+        }
+
+        None
     }
 }

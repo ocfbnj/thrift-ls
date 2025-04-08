@@ -18,6 +18,12 @@ pub struct Range {
     pub end: Position,
 }
 
+impl Range {
+    pub fn contains(&self, pos: Position) -> bool {
+        self.start <= pos && pos <= self.end
+    }
+}
+
 /// Represents a error in the document.
 #[derive(Debug, Clone)]
 pub struct Error {

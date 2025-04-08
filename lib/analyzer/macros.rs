@@ -27,7 +27,7 @@ macro_rules! parse_definition {
             $(
                 TokenKind::$kind => {
                     if let Some(node) = $self.$parse_fn() {
-                        $definitions.push(Box::new(node));
+                        $definitions.push(Rc::new(node));
                     } else {
                         $self.recover_to_next_definition();
                     }
@@ -119,28 +119,6 @@ macro_rules! break_opt_token_or_eof {
     };
 }
 
-/// Implements the Node trait for the given types.
-#[macro_export]
-macro_rules! impl_node {
-    ($($t:ty),*) => {
-        $(
-            impl Node for $t {
-                fn as_any(&self) -> &dyn Any {
-                    self
-                }
-
-                fn clone_box(&self) -> Box<dyn Node> {
-                    Box::new(self.clone())
-                }
-
-                fn range(&self) -> Range {
-                    self.range.clone()
-                }
-            }
-        )*
-    };
-}
-
 /// Implements the DefinitionNode trait for the given types.
 #[macro_export]
 macro_rules! impl_definition_node {
@@ -151,8 +129,12 @@ macro_rules! impl_definition_node {
                     &self.identifier.name
                 }
 
-                fn clone_definition_box(&self) -> Box<dyn DefinitionNode> {
-                    Box::new(self.clone())
+                fn as_node(&self) -> &dyn Node {
+                    self
+                }
+
+                fn identifier(&self) -> &IdentifierNode {
+                    &self.identifier
                 }
             }
         )*

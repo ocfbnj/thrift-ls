@@ -183,6 +183,14 @@ impl From<base::Position> for Position {
     }
 }
 
+impl Into<base::Position> for Position {
+    fn into(self) -> base::Position {
+        base::Position {
+            line: self.line as u32 + 1,
+            column: self.character as u32 + 1,
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokensOptions {
@@ -207,6 +215,20 @@ pub struct SemanticTokensParams {
 #[serde(rename_all = "camelCase")]
 pub struct SemanticTokens {
     pub data: Vec<u32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefinitionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Location {
+    pub uri: String,
+    pub range: Range,
 }
 
 #[derive(Debug)]
