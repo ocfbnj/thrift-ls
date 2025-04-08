@@ -175,7 +175,9 @@ impl Analyzer {
 
         // recursively parse dependencies
         for (dep_path, include_node) in dependencies.iter() {
-            if !self.parse_file(dep_path, visited.clone(), Some((path, include_node))) {
+            let res = self.parse_file(dep_path, visited.clone(), Some((path, include_node)));
+            visited.borrow_mut().remove(dep_path);
+            if !res {
                 continue;
             }
 
@@ -196,18 +198,163 @@ impl Analyzer {
 
     /// Generate semantic tokens for a document.
     fn generate_semantic_tokens(&mut self) {
-        let identifier_field_types: Vec<(PathBuf, Vec<&IdentifierNode>)> = self
-            .find_identifier_field_types()
-            .into_iter()
-            .map(|(path, identifiers)| (path.clone(), identifiers))
-            .collect();
+        let field_type_identifiers = self.find_field_type_identifiers();
+        let function_identifiers = self.find_function_identifiers();
+
+        let mut identifiers: HashMap<PathBuf, Vec<(&IdentifierNode, u32)>> = HashMap::new();
+        for (path, ids) in field_type_identifiers {
+            identifiers
+                .entry(path)
+                .or_default()
+                .extend(ids.into_iter().map(|x| (x, 0)));
+        }
+        for (path, ids) in function_identifiers {
+            identifiers
+                .entry(path)
+                .or_default()
+                .extend(ids.into_iter().map(|x| (x, 1)));
+        }
 
         let mut new_tokens = HashMap::new();
-        for (path, identifiers) in identifier_field_types {
-            let tokens = self.convert_identifiers_to_semantic_tokens(identifiers);
-            new_tokens.insert(path, tokens);
+        for (path, ids) in identifiers {
+            new_tokens.insert(path, self.convert_identifiers_to_semantic_tokens(ids));
         }
+
         self.semantic_tokens = new_tokens;
+    }
+
+    /// Find all IdentifierNode instances used as field types in the document nodes.
+    fn find_field_type_identifiers(&self) -> HashMap<PathBuf, Vec<&IdentifierNode>> {
+        let mut result = HashMap::new();
+
+        for (path, document_node) in &self.document_nodes {
+            for definition in &document_node.definitions {
+                let definition = definition.as_ref().as_any();
+
+                if let Some(struct_node) = definition.downcast_ref::<StructNode>() {
+                    for field in &struct_node.fields {
+                        self.collect_field_type_identifiers(&field.field_type, &mut result, path);
+                    }
+                } else if let Some(union_node) = definition.downcast_ref::<UnionNode>() {
+                    for field in &union_node.fields {
+                        self.collect_field_type_identifiers(&field.field_type, &mut result, path);
+                    }
+                } else if let Some(exception_node) = definition.downcast_ref::<ExceptionNode>() {
+                    for field in &exception_node.fields {
+                        self.collect_field_type_identifiers(&field.field_type, &mut result, path);
+                    }
+                } else if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
+                    for function in &service_node.functions {
+                        self.collect_field_type_identifiers(
+                            &function.function_type,
+                            &mut result,
+                            path,
+                        );
+                        for field in &function.fields {
+                            self.collect_field_type_identifiers(
+                                &field.field_type,
+                                &mut result,
+                                path,
+                            );
+                        }
+                        if let Some(throws) = &function.throws {
+                            for throw in throws {
+                                self.collect_field_type_identifiers(
+                                    &throw.field_type,
+                                    &mut result,
+                                    path,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        result
+    }
+
+    /// Collect all IdentifierNode instances used as field types in the document nodes.
+    fn collect_field_type_identifiers<'a>(
+        &'a self,
+        field_type: &'a Box<dyn Node>,
+        result: &mut HashMap<PathBuf, Vec<&'a IdentifierNode>>,
+        path: &PathBuf,
+    ) {
+        let field_type = field_type.as_ref().as_any();
+        if let Some(identifier) = field_type.downcast_ref::<IdentifierNode>() {
+            result
+                .entry(path.clone())
+                .or_insert_with(Vec::new)
+                .push(identifier);
+        } else if let Some(list_type) = field_type.downcast_ref::<ListTypeNode>() {
+            self.collect_field_type_identifiers(&list_type.type_node, result, path);
+        } else if let Some(set_type) = field_type.downcast_ref::<SetTypeNode>() {
+            self.collect_field_type_identifiers(&set_type.type_node, result, path);
+        } else if let Some(map_type) = field_type.downcast_ref::<MapTypeNode>() {
+            self.collect_field_type_identifiers(&map_type.key_type, result, path);
+            self.collect_field_type_identifiers(&map_type.value_type, result, path);
+        }
+    }
+
+    /// Convert a vector of IdentifierNode references to semantic tokens.
+    fn convert_identifiers_to_semantic_tokens(
+        &self,
+        mut identifiers: Vec<(&IdentifierNode, u32)>,
+    ) -> Vec<u32> {
+        identifiers.sort_by_key(|(identifier, _)| identifier.range());
+
+        let mut tokens = Vec::new();
+        let mut prev_line = 0;
+        let mut prev_char = 0;
+
+        for (identifier, token_type) in identifiers {
+            let range = lsp::Range::from(identifier.range());
+
+            let line = range.start.line as u32;
+            let char = range.start.character as u32;
+            let length = identifier.name.len() as u32;
+
+            // deltaLine: line number relative to the previous token
+            let delta_line = line - prev_line;
+            // deltaStart: start character relative to the previous token
+            let delta_start = if delta_line == 0 {
+                char - prev_char
+            } else {
+                char
+            };
+            // length: length of the token
+            // tokenType: 0 for type, 1 for function (as defined in SemanticTokensLegend)
+            // tokenModifiers: 0 for no modifiers
+            tokens.extend_from_slice(&[delta_line, delta_start, length, token_type, 0]);
+
+            prev_line = line;
+            prev_char = char;
+        }
+
+        tokens
+    }
+
+    /// Find all function identifiers in the document nodes.
+    fn find_function_identifiers(&self) -> HashMap<PathBuf, Vec<&IdentifierNode>> {
+        let mut result = HashMap::new();
+
+        for (path, document_node) in &self.document_nodes {
+            for definition in &document_node.definitions {
+                let definition = definition.as_ref().as_any();
+
+                if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
+                    for function in &service_node.functions {
+                        result
+                            .entry(path.clone())
+                            .or_insert_with(Vec::new)
+                            .push(&function.identifier);
+                    }
+                }
+            }
+        }
+
+        result
     }
 
     /// type checking
@@ -227,115 +374,5 @@ impl Analyzer {
                 );
             }
         }
-    }
-
-    /// Find all IdentifierNode instances used as field types in the document nodes.
-    fn find_identifier_field_types(&self) -> HashMap<PathBuf, Vec<&IdentifierNode>> {
-        let mut result = HashMap::new();
-
-        for (path, document_node) in &self.document_nodes {
-            for definition in &document_node.definitions {
-                let definition = definition.as_ref().as_any();
-
-                if let Some(struct_node) = definition.downcast_ref::<StructNode>() {
-                    for field in &struct_node.fields {
-                        self.collect_identifier_field_types(&field.field_type, &mut result, path);
-                    }
-                } else if let Some(union_node) = definition.downcast_ref::<UnionNode>() {
-                    for field in &union_node.fields {
-                        self.collect_identifier_field_types(&field.field_type, &mut result, path);
-                    }
-                } else if let Some(exception_node) = definition.downcast_ref::<ExceptionNode>() {
-                    for field in &exception_node.fields {
-                        self.collect_identifier_field_types(&field.field_type, &mut result, path);
-                    }
-                } else if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
-                    for function in &service_node.functions {
-                        self.collect_identifier_field_types(
-                            &function.function_type,
-                            &mut result,
-                            path,
-                        );
-                        for field in &function.fields {
-                            self.collect_identifier_field_types(
-                                &field.field_type,
-                                &mut result,
-                                path,
-                            );
-                        }
-                        if let Some(throws) = &function.throws {
-                            for throw in throws {
-                                self.collect_identifier_field_types(
-                                    &throw.field_type,
-                                    &mut result,
-                                    path,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Collect all IdentifierNode instances used as field types in the document nodes.
-    fn collect_identifier_field_types<'a>(
-        &'a self,
-        field_type: &'a Box<dyn Node>,
-        result: &mut HashMap<PathBuf, Vec<&'a IdentifierNode>>,
-        path: &PathBuf,
-    ) {
-        let field_type = field_type.as_ref().as_any();
-        if let Some(identifier) = field_type.downcast_ref::<IdentifierNode>() {
-            result
-                .entry(path.clone())
-                .or_insert_with(Vec::new)
-                .push(identifier);
-        } else if let Some(list_type) = field_type.downcast_ref::<ListTypeNode>() {
-            self.collect_identifier_field_types(&list_type.type_node, result, path);
-        } else if let Some(set_type) = field_type.downcast_ref::<SetTypeNode>() {
-            self.collect_identifier_field_types(&set_type.type_node, result, path);
-        } else if let Some(map_type) = field_type.downcast_ref::<MapTypeNode>() {
-            self.collect_identifier_field_types(&map_type.key_type, result, path);
-            self.collect_identifier_field_types(&map_type.value_type, result, path);
-        }
-    }
-
-    /// Convert a vector of IdentifierNode references to semantic tokens.
-    fn convert_identifiers_to_semantic_tokens(
-        &self,
-        identifiers: Vec<&IdentifierNode>,
-    ) -> Vec<u32> {
-        let mut tokens = Vec::new();
-        let mut prev_line = 0;
-        let mut prev_char = 0;
-
-        for identifier in identifiers {
-            let range = lsp::Range::from(identifier.range());
-
-            let line = range.start.line as u32;
-            let char = range.start.character as u32;
-            let length = identifier.name.len() as u32;
-
-            // deltaLine: line number relative to the previous token
-            let delta_line = line - prev_line;
-            // deltaStart: start character relative to the previous token
-            let delta_start = if delta_line == 0 {
-                char - prev_char
-            } else {
-                char
-            };
-            // length: length of the token
-            // tokenType: 0 for type (as defined in SemanticTokensLegend)
-            // tokenModifiers: 0 for no modifiers
-            tokens.extend_from_slice(&[delta_line, delta_start, length, 0, 0]);
-
-            prev_line = line;
-            prev_char = char;
-        }
-
-        tokens
     }
 }

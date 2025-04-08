@@ -118,7 +118,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
 
         let semantic_tokens_options = SemanticTokensOptions {
             legend: SemanticTokensLegend {
-                token_types: vec!["type".to_string()],
+                token_types: vec!["type".to_string(), "function".to_string()],
                 token_modifiers: vec![],
             },
             full: Some(true),

@@ -770,13 +770,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_key_value_pair(&mut self) -> Option<(String, String)> {
-        // KeyValuePair ::= Identifier '=' Literal
+        // KeyValuePair ::= Identifier '=' Literal ListSeparator?
 
         let token = self.next_token();
         let key = extract_token_value!(self, token, Identifier, "identifier");
         expect_token!(self, Assign, "'='");
         let token = self.next_token();
         let value = extract_token_value!(self, token, Literal, "literal");
+        opt_list_separator!(self);
 
         Some((key, value))
     }

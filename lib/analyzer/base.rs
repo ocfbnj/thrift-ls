@@ -1,7 +1,7 @@
 //! Base types for the analyzer.
 
 /// Represents a location in a document.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Position {
     /// Line number in a document (one-based).
     pub line: u32,
@@ -10,7 +10,7 @@ pub struct Position {
 }
 
 /// Represents a range in a document.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Range {
     /// Start position of the range.
     pub start: Position,
