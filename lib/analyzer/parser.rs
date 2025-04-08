@@ -159,14 +159,20 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_identifier(&mut self) -> Option<IdentifierNode> {
-        // Identifier ::= Identifier
+        // Identifier ::= ( Letter | '_' ) ( Letter | Digit | '.' | '_' )*
 
-        let start = self.peek_next_token().range().start;
         let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
-        let end = self.prev_token().unwrap_or_default().range().end;
+        let range = token.range();
+        if let TokenKind::Identifier(name) = token.kind {
+            return Some(IdentifierNode { range, name });
+        }
 
-        let range = Range { start, end };
+        let name = token.kind.to_string();
+        if !TokenKind::from_string(&name).is_some() {
+            self.add_error(format!("Invalid identifier: {}", name), token.range());
+            return None;
+        }
+
         Some(IdentifierNode { range, name })
     }
 }
