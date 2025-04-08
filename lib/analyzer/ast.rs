@@ -34,156 +34,161 @@ impl Clone for Box<dyn DefinitionNode> {
 
 #[derive(Debug, Clone)]
 pub struct DocumentNode {
+    pub range: Range,
     pub headers: Vec<Box<dyn Node>>,
     pub definitions: Vec<Box<dyn DefinitionNode>>,
-    pub range: Range,
-}
-
-#[derive(Debug, Clone)]
-pub struct HeaderNode {
-    pub range: Range,
 }
 
 #[derive(Debug, Clone)]
 pub struct IncludeNode {
-    pub literal: String,
     pub range: Range,
+    pub literal: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct CppIncludeNode {
-    pub literal: String,
     pub range: Range,
+    pub literal: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct NamespaceNode {
-    pub name: String,
+    pub range: Range,
     pub scope: String,
-    pub range: Range,
-}
-
-#[derive(Debug, Clone)]
-pub struct ConstNode {
-    pub field_type: Box<dyn Node>,
-    pub name: String,
-    pub value: Box<dyn Node>,
-    pub range: Range,
+    pub identifier: IdentifierNode,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct IdentifierNode {
-    pub name: String,
     pub range: Range,
+    pub name: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstNode {
+    pub range: Range,
+    pub field_type: Box<dyn Node>,
+    pub identifier: IdentifierNode,
+    pub value: Box<dyn Node>,
 }
 
 #[derive(Debug, Clone)]
 pub struct BaseTypeNode {
-    pub name: String,
     pub range: Range,
+    pub name: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct MapTypeNode {
+    pub range: Range,
     pub cpp_type: Option<String>,
     pub key_type: Box<dyn Node>,
     pub value_type: Box<dyn Node>,
-    pub range: Range,
 }
 
 #[derive(Debug, Clone)]
 pub struct SetTypeNode {
+    pub range: Range,
     pub cpp_type: Option<String>,
     pub type_node: Box<dyn Node>,
-    pub range: Range,
 }
 
 #[derive(Debug, Clone)]
 pub struct ListTypeNode {
+    pub range: Range,
     pub cpp_type: Option<String>,
     pub type_node: Box<dyn Node>,
-    pub range: Range,
 }
 
 #[derive(Debug, Clone)]
 pub struct ConstValueNode {
-    pub value: String,
     pub range: Range,
+    pub value: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct TypedefNode {
-    pub definition_type: Box<dyn Node>,
-    pub name: String,
     pub range: Range,
+    pub definition_type: Box<dyn Node>,
+    pub identifier: IdentifierNode,
 }
 
 #[derive(Debug, Clone)]
 pub struct EnumNode {
-    pub name: String,
-    pub values: Vec<EnumValueNode>,
     pub range: Range,
+    pub identifier: IdentifierNode,
+    pub values: Vec<EnumValueNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct EnumValueNode {
+    pub range: Range,
     pub name: String,
     pub value: Option<i32>,
-    pub range: Range,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StructNode {
-    pub name: String,
-    pub fields: Vec<FieldNode>,
     pub range: Range,
+    pub identifier: IdentifierNode,
+    pub fields: Vec<FieldNode>,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct FieldNode {
+    pub range: Range,
     pub field_id: Option<i32>,
     pub field_req: Option<String>,
     pub field_type: Box<dyn Node>,
-    pub name: String,
+    pub identifier: IdentifierNode,
     pub default_value: Option<ConstValueNode>,
-    pub range: Range,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct UnionNode {
-    pub name: String,
-    pub fields: Vec<FieldNode>,
     pub range: Range,
+    pub identifier: IdentifierNode,
+    pub fields: Vec<FieldNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ExceptionNode {
-    pub name: String,
-    pub fields: Vec<FieldNode>,
     pub range: Range,
+    pub identifier: IdentifierNode,
+    pub fields: Vec<FieldNode>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ServiceNode {
-    pub name: String,
+    pub range: Range,
+    pub identifier: IdentifierNode,
     pub extends: Option<String>,
     pub functions: Vec<FunctionNode>,
-    pub range: Range,
 }
 
 #[derive(Debug, Clone)]
 pub struct FunctionNode {
-    pub is_oneway: bool,
-    pub return_type: Box<dyn Node>,
-    pub name: String,
-    pub parameters: Vec<FieldNode>,
-    pub throws: Option<Vec<FieldNode>>,
     pub range: Range,
+    pub is_oneway: bool,
+    pub function_type: Box<dyn Node>,
+    pub identifier: IdentifierNode,
+    pub fields: Vec<FieldNode>,
+    pub throws: Option<Vec<FieldNode>>,
+    pub ext: Option<ExtNode>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ExtNode {
+    pub range: Range,
+    pub kv_pairs: Vec<(String, String)>,
 }
 
 impl_node!(
     DocumentNode,
-    HeaderNode,
     IncludeNode,
     CppIncludeNode,
     NamespaceNode,
@@ -202,7 +207,8 @@ impl_node!(
     UnionNode,
     ExceptionNode,
     ServiceNode,
-    FunctionNode
+    FunctionNode,
+    ExtNode
 );
 
 impl_definition_node!(

@@ -19,13 +19,12 @@
         {
             "name": "string.quoted.double.thrift",
             "begin": "\"",
-            "end": "\"",
-            "patterns": [
-                {
-                    "name": "constant.character.escape.thrift",
-                    "match": "\\\\(n|t|r|\\\\|\")"
-                }
-            ]
+            "end": "\""
+        },
+        {
+            "name": "string.quoted.single.thrift",
+            "begin": "'",
+            "end": "'"
         },
         {
             "name": "constant.numeric.thrift",
@@ -46,10 +45,6 @@
         {
             "name": "constant.language.thrift",
             "match": "\\b(true|false)\\b"
-        },
-        {
-            "name": "entity.name.function.thrift",
-            "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*(?=\\()"
         },
         {
             "name": "entity.name.type.thrift",

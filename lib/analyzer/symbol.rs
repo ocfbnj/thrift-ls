@@ -73,10 +73,10 @@ impl SymbolTable {
                 }
             } else if let Some(service_def) = definition.downcast_ref::<ServiceNode>() {
                 for function in &service_def.functions {
-                    self.check_field_type(&*function.return_type);
+                    self.check_field_type(&*function.function_type);
 
-                    for param in &function.parameters {
-                        self.check_field_type(&*param.field_type);
+                    for field in &function.fields {
+                        self.check_field_type(&*field.field_type);
                     }
 
                     if let Some(throws) = &function.throws {

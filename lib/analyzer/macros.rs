@@ -148,7 +148,7 @@ macro_rules! impl_definition_node {
         $(
             impl DefinitionNode for $t {
                 fn name(&self) -> &str {
-                    &self.name
+                    &self.identifier.name
                 }
 
                 fn clone_definition_box(&self) -> Box<dyn DefinitionNode> {

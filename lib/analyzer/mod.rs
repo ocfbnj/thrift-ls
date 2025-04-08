@@ -252,13 +252,13 @@ impl Analyzer {
                 } else if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
                     for function in &service_node.functions {
                         self.collect_identifier_field_types(
-                            &function.return_type,
+                            &function.function_type,
                             &mut result,
                             path,
                         );
-                        for param in &function.parameters {
+                        for field in &function.fields {
                             self.collect_identifier_field_types(
-                                &param.field_type,
+                                &field.field_type,
                                 &mut result,
                                 path,
                             );

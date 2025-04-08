@@ -35,8 +35,7 @@ namespace py ThriftTest
 namespace py.twisted ThriftTest
 namespace rb Thrift.Test
 namespace st ThriftTest
-// FIXME:
-// namespace xsd test (uri = 'http://thrift.apache.org/ns/ThriftTest')
+namespace xsd test (uri = 'http://thrift.apache.org/ns/ThriftTest')
 
 // Presence of namespaces and sub-namespaces for which there is
 // no generator should compile with warnings only
@@ -58,8 +57,7 @@ enum Numberz
   EIGHT = 8
 }
 
-// FIXME:
-// const Numberz myNumberz = Numberz.ONE;
+const Numberz myNumberz = Numberz.ONE;
 // the following is expected to fail:
 // const Numberz urNumberz = ONE;
 
@@ -102,12 +100,11 @@ struct Xtruct3
 }
 
 
-// FIXME:
-// struct Insanity
-// {
-//   1: map<Numberz, UserId> userMap,
-//   2: list<Xtruct> xtructs
-// } (python.immutable= "")
+struct Insanity
+{
+  1: map<Numberz, UserId> userMap,
+  2: list<Xtruct> xtructs
+} (python.immutable= "")
 
 struct CrazyNesting {
   1: string string_field,

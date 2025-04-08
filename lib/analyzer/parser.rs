@@ -14,7 +14,7 @@ use crate::{
     parse_definition, parse_header,
 };
 
-use super::ast::DefinitionNode;
+use super::ast::{DefinitionNode, ExtNode};
 
 /// Parser for a single file.
 pub struct Parser<'a> {
@@ -122,7 +122,7 @@ impl<'a> Parser<'a> {
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
-        Some(IncludeNode { literal, range })
+        Some(IncludeNode { range, literal })
     }
 
     fn parse_cpp_include(&mut self) -> Option<CppIncludeNode> {
@@ -135,22 +135,39 @@ impl<'a> Parser<'a> {
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
-        Some(CppIncludeNode { literal, range })
+        Some(CppIncludeNode { range, literal })
     }
 
     fn parse_namespace(&mut self) -> Option<NamespaceNode> {
-        // Namespace ::= 'namespace' NamespaceScope Identifier
+        // Namespace ::= 'namespace' NamespaceScope Identifier Ext?
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Namespace, "'namespace'");
         let token = self.next_token();
         let scope = extract_token_value!(self, token, NamespaceScope, "namespace scope");
+        let identifier = self.parse_identifier()?;
+        let ext = self.opt_parse_ext();
+        let end = self.prev_token().unwrap_or_default().range().end;
+
+        let range = Range { start, end };
+        Some(NamespaceNode {
+            range,
+            scope,
+            identifier,
+            ext,
+        })
+    }
+
+    fn parse_identifier(&mut self) -> Option<IdentifierNode> {
+        // Identifier ::= Identifier
+
+        let start = self.peek_next_token().range().start;
         let token = self.next_token();
         let name = extract_token_value!(self, token, Identifier, "identifier");
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
-        Some(NamespaceNode { name, scope, range })
+        Some(IdentifierNode { range, name })
     }
 }
 
@@ -184,8 +201,7 @@ impl<'a> Parser<'a> {
         let start = self.peek_next_token().range().start;
         expect_token!(self, Const, "'const'");
         let field_type = self.parse_field_type()?;
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         expect_token!(self, Assign, "'='");
         let value = Box::new(self.parse_const_value()?);
         opt_list_separator!(self);
@@ -193,10 +209,10 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(ConstNode {
-            field_type,
-            name,
-            value,
             range,
+            field_type,
+            identifier,
+            value,
         })
     }
 
@@ -208,8 +224,8 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier(ref identifier) => {
                 self.eat_next_token();
                 return Some(Box::new(IdentifierNode {
-                    name: identifier.clone(),
                     range: next_token.range(),
+                    name: identifier.clone(),
                 }));
             }
             _ => {
@@ -226,8 +242,8 @@ impl<'a> Parser<'a> {
             TokenKind::BaseType(ref base_type) => {
                 self.eat_next_token();
                 return Some(Box::new(BaseTypeNode {
-                    name: base_type.clone(),
                     range: next_token.range(),
+                    name: base_type.clone(),
                 }));
             }
             _ => {
@@ -260,8 +276,8 @@ impl<'a> Parser<'a> {
         if self.peek_next_token().kind != TokenKind::CppType {
             return None;
         }
+        expect_token!(self, CppType, "'cpp_type'");
 
-        self.eat_next_token();
         let token = self.next_token();
         Some(extract_token_value!(self, token, Identifier, "identifier"))
     }
@@ -282,10 +298,10 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(MapTypeNode {
+            range,
             cpp_type,
             key_type,
             value_type,
-            range,
         })
     }
 
@@ -303,9 +319,9 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(SetTypeNode {
+            range,
             cpp_type,
             type_node,
-            range,
         })
     }
 
@@ -323,9 +339,9 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(ListTypeNode {
+            range,
             cpp_type,
             type_node,
-            range,
         })
     }
 
@@ -340,8 +356,8 @@ impl<'a> Parser<'a> {
             | TokenKind::Identifier(value) => {
                 self.eat_next_token();
                 Some(ConstValueNode {
-                    value: value.clone(),
                     range: next_token.range(),
+                    value: value.clone(),
                 })
             }
             TokenKind::Lbrack => self.parse_const_list(),
@@ -372,8 +388,8 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(ConstValueNode {
-            value: format!("[{}]", values.join(", ")),
             range,
+            value: format!("[{}]", values.join(", ")),
         })
     }
 
@@ -391,6 +407,7 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(ConstValueNode {
+            range,
             value: format!(
                 "{{{}}}",
                 pairs
@@ -399,7 +416,6 @@ impl<'a> Parser<'a> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            range,
         })
     }
 
@@ -420,15 +436,14 @@ impl<'a> Parser<'a> {
         let start = self.peek_next_token().range().start;
         expect_token!(self, Typedef, "'typedef'");
         let definition_type = self.parse_definition_type()?;
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
         Some(TypedefNode {
-            name,
-            definition_type,
             range,
+            definition_type,
+            identifier,
         })
     }
 
@@ -437,8 +452,7 @@ impl<'a> Parser<'a> {
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Enum, "'enum'");
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         expect_token!(self, Lbrace, "'{'");
 
         let mut values = Vec::new();
@@ -450,14 +464,14 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(EnumNode {
-            name,
-            values,
             range,
+            identifier,
+            values,
         })
     }
 
     fn parse_enum_value(&mut self) -> Option<EnumValueNode> {
-        // EnumValue ::= Identifier ('=' IntConstant)? ListSeparator?
+        // EnumValue ::= Identifier ('=' IntConstant)? Ext? ListSeparator?
 
         let start = self.peek_next_token().range().start;
         let token = self.next_token();
@@ -475,20 +489,25 @@ impl<'a> Parser<'a> {
             );
         }
 
+        let ext = self.opt_parse_ext();
         opt_list_separator!(self);
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
-        Some(EnumValueNode { name, value, range })
+        Some(EnumValueNode {
+            range,
+            name,
+            value,
+            ext,
+        })
     }
 
     fn parse_struct(&mut self) -> Option<StructNode> {
-        // Struct ::= 'struct' Identifier '{' Field* '}'
+        // Struct ::= 'struct' Identifier '{' Field* '}' Ext?
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Struct, "'struct'");
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         expect_token!(self, Lbrace, "'{'");
 
         let mut fields = Vec::new();
@@ -496,20 +515,20 @@ impl<'a> Parser<'a> {
             break_opt_token_or_eof!(self, Rbrace);
             fields.push(self.parse_field()?);
         }
+        let ext = self.opt_parse_ext();
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
         Some(StructNode {
-            name,
-            fields,
             range,
+            identifier,
+            fields,
+            ext,
         })
     }
 
     fn parse_field(&mut self) -> Option<FieldNode> {
-        // Field ::= FieldID? FieldReq? FieldType Identifier ('=' ConstValue)? ListSeparator?
-        // FieldID ::= IntConstant ':'
-        // FieldReq ::= 'required' | 'optional'
+        // Field ::= FieldID? FieldReq? FieldType Identifier ('=' ConstValue)? Ext? ListSeparator?
 
         let start = self.peek_next_token().range().start;
         let mut field_id = None;
@@ -551,8 +570,7 @@ impl<'a> Parser<'a> {
         }
 
         let field_type = self.parse_field_type()?;
-        let token = self.next_token();
-        let identifier = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
 
         let mut default_value = None;
         let next_token = self.peek_next_token();
@@ -561,17 +579,19 @@ impl<'a> Parser<'a> {
             default_value = Some(self.parse_const_value()?);
         }
 
+        let ext = self.opt_parse_ext();
         opt_list_separator!(self);
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
         Some(FieldNode {
+            range,
             field_id,
             field_req,
             field_type,
-            name: identifier,
+            identifier,
             default_value,
-            range,
+            ext,
         })
     }
 
@@ -580,8 +600,7 @@ impl<'a> Parser<'a> {
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Union, "'union'");
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         expect_token!(self, Lbrace, "'{'");
 
         let mut fields = Vec::new();
@@ -593,9 +612,9 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(UnionNode {
-            name,
-            fields,
             range,
+            identifier,
+            fields,
         })
     }
 
@@ -604,8 +623,7 @@ impl<'a> Parser<'a> {
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Exception, "'exception'");
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         expect_token!(self, Lbrace, "'{'");
 
         let mut fields = Vec::new();
@@ -617,9 +635,9 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(ExceptionNode {
-            name,
-            fields,
             range,
+            identifier,
+            fields,
         })
     }
 
@@ -628,8 +646,7 @@ impl<'a> Parser<'a> {
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Service, "'service'");
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
 
         let mut extends = None;
         let next_token = self.peek_next_token();
@@ -654,15 +671,15 @@ impl<'a> Parser<'a> {
 
         let range = Range { start, end };
         Some(ServiceNode {
-            name,
+            range,
+            identifier,
             extends,
             functions,
-            range,
         })
     }
 
     fn parse_function(&mut self) -> Option<FunctionNode> {
-        // Function ::= 'oneway'? FunctionType Identifier '(' Field* ')' Throws? ListSeparator?
+        // Function ::= 'oneway'? FunctionType Identifier '(' Field* ')' Throws? Ext? ListSeparator?
 
         let start = self.peek_next_token().range().start;
         let mut is_oneway = false;
@@ -673,14 +690,13 @@ impl<'a> Parser<'a> {
         }
 
         let return_type = self.parse_function_type()?;
-        let token = self.next_token();
-        let name = extract_token_value!(self, token, Identifier, "identifier");
+        let identifier = self.parse_identifier()?;
         expect_token!(self, Lparen, "'('");
 
-        let mut parameters = Vec::new();
+        let mut fields = Vec::new();
         loop {
             break_opt_token_or_eof!(self, Rparen);
-            parameters.push(self.parse_field()?);
+            fields.push(self.parse_field()?);
         }
 
         let mut throws = None;
@@ -688,22 +704,25 @@ impl<'a> Parser<'a> {
         if next_token.kind == TokenKind::Throws {
             throws = Some(self.parse_throws()?);
         }
+        let ext = self.opt_parse_ext();
         opt_list_separator!(self);
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
         Some(FunctionNode {
-            is_oneway,
-            return_type,
-            name,
-            parameters,
-            throws,
             range,
+            is_oneway,
+            function_type: return_type,
+            identifier,
+            fields,
+            throws,
+            ext,
         })
     }
 
     fn parse_function_type(&mut self) -> Option<Box<dyn Node>> {
         // FunctionType ::= FieldType | 'void'
+
         let next_token = self.peek_next_token();
         if next_token.kind == TokenKind::Void {
             self.eat_next_token();
@@ -717,6 +736,7 @@ impl<'a> Parser<'a> {
 
     fn parse_throws(&mut self) -> Option<Vec<FieldNode>> {
         // Throws ::= 'throws' '(' Field* ')'
+
         expect_token!(self, Throws, "'throws'");
         expect_token!(self, Lparen, "'('");
 
@@ -727,6 +747,38 @@ impl<'a> Parser<'a> {
         }
 
         Some(fields)
+    }
+
+    fn opt_parse_ext(&mut self) -> Option<ExtNode> {
+        // Ext ::= '(' KeyValuePair* ')'
+
+        let start = self.peek_next_token().range().start;
+        if self.peek_next_token().kind != TokenKind::Lparen {
+            return None;
+        }
+        expect_token!(self, Lparen, "'('");
+
+        let mut kv_pairs = Vec::new();
+        loop {
+            break_opt_token_or_eof!(self, Rparen);
+            kv_pairs.push(self.parse_key_value_pair()?);
+        }
+
+        let end = self.prev_token().unwrap_or_default().range().end;
+        let range = Range { start, end };
+        Some(ExtNode { kv_pairs, range })
+    }
+
+    fn parse_key_value_pair(&mut self) -> Option<(String, String)> {
+        // KeyValuePair ::= Identifier '=' Literal
+
+        let token = self.next_token();
+        let key = extract_token_value!(self, token, Identifier, "identifier");
+        expect_token!(self, Assign, "'='");
+        let token = self.next_token();
+        let value = extract_token_value!(self, token, Literal, "literal");
+
+        Some((key, value))
     }
 }
 
