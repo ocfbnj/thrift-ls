@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
 use crate::analyzer::{
     ast::{
@@ -18,7 +14,7 @@ use super::ast::DefinitionNode;
 #[derive(Debug, Clone)]
 pub struct SymbolTable {
     types: HashMap<String, Box<dyn DefinitionNode>>,
-    includes: HashMap<String, Arc<RwLock<SymbolTable>>>,
+    includes: HashMap<String, Rc<RefCell<SymbolTable>>>,
     errors: Vec<Error>,
 }
 
@@ -42,7 +38,7 @@ impl SymbolTable {
     }
 
     /// Add a dependency to the symbol table.
-    pub fn add_dependency(&mut self, path: PathBuf, dependency: Arc<RwLock<SymbolTable>>) {
+    pub fn add_dependency(&mut self, path: &PathBuf, dependency: Rc<RefCell<SymbolTable>>) {
         let namespace = path
             .file_stem()
             .and_then(|stem| stem.to_str())
@@ -53,12 +49,8 @@ impl SymbolTable {
     }
 
     /// Get the errors.
-    pub fn errors(&self) -> Vec<Error> {
-        let mut all_errors = self.errors.clone();
-        for table in self.includes.values() {
-            all_errors.extend(table.read().unwrap().errors());
-        }
-        all_errors
+    pub fn errors(&self) -> &[Error] {
+        &self.errors
     }
 
     /// Check the types of the document.
@@ -150,8 +142,7 @@ impl SymbolTable {
                     range: identifier.range(),
                 };
                 return included_table
-                    .read()
-                    .unwrap()
+                    .borrow()
                     .resolve_identifier_type(&type_identifier);
             }
             return false;

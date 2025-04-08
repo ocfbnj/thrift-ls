@@ -7,7 +7,7 @@ use crate::{
             TypedefNode, UnionNode,
         },
         base::{Error, Range},
-        scanner::{Input, Scanner},
+        scanner::Scanner,
         token::{Token, TokenKind},
     },
     break_opt_token_or_eof, expect, expect_token, extract_token_value, opt_list_separator,
@@ -17,15 +17,15 @@ use crate::{
 use super::ast::DefinitionNode;
 
 /// Parser for a single file.
-pub struct Parser {
-    scanner: Scanner,
-    prev_token: Option<Token>,
+pub struct Parser<'a> {
+    scanner: Scanner<'a>,
     errors: Vec<Error>,
+    prev_token: Option<Token>,
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
     /// Create a new parser.
-    pub fn new(input: impl Input) -> Parser {
+    pub fn new(input: &'a [char]) -> Parser<'a> {
         Parser {
             scanner: Scanner::new(input),
             errors: Vec::new(),
@@ -33,35 +33,25 @@ impl Parser {
         }
     }
 
-    /// Reset the parser.
-    pub fn reset(&mut self, input: impl Input) {
-        self.scanner.reset(input);
-        self.prev_token = None;
-        self.errors.clear();
-    }
-
     /// Parse a single file.
-    pub fn parse(&mut self) -> DocumentNode {
+    pub fn parse(mut self) -> (DocumentNode, Vec<Error>) {
         let start = self.peek_next_token().range().start;
         let headers = self.parse_headers();
         let definitions = self.parse_definitions();
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
-        DocumentNode {
+        let node = DocumentNode {
             headers,
             definitions,
             range,
-        }
-    }
+        };
 
-    /// Get the errors.
-    pub fn errors(&self) -> &[Error] {
-        &self.errors
+        (node, self.errors)
     }
 }
 
-impl Parser {
+impl<'a> Parser<'a> {
     fn next_token(&mut self) -> Token {
         self.skip_comment_tokens();
         let (next_token, err) = self.scanner.scan();
@@ -104,7 +94,7 @@ impl Parser {
 }
 
 // parse headers
-impl Parser {
+impl<'a> Parser<'a> {
     fn parse_headers(&mut self) -> Vec<Box<dyn Node>> {
         // Headers ::= ( Include | CppInclude | Namespace )*
         let mut headers: Vec<Box<dyn Node>> = Vec::new();
@@ -165,7 +155,7 @@ impl Parser {
 }
 
 // parse definitions
-impl Parser {
+impl<'a> Parser<'a> {
     fn parse_definitions(&mut self) -> Vec<Box<dyn DefinitionNode>> {
         // Definitions ::= ( Const | Typedef | Enum | Struct | Union | Exception | Service )*
 
@@ -741,7 +731,7 @@ impl Parser {
 }
 
 // error handling
-impl Parser {
+impl<'a> Parser<'a> {
     fn add_error(&mut self, message: String, range: Range) {
         self.errors.push(Error { range, message });
     }
@@ -775,7 +765,7 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::analyzer::scanner::FileInput;
+    use std::fs;
 
     use super::*;
 
@@ -785,15 +775,18 @@ mod tests {
         let file_path = work_path.join(std::path::Path::new(
             "./lib/analyzer/test_file/ThriftTest.thrift",
         ));
-        let mut parser = Parser::new(FileInput::new(&file_path));
+        let content = fs::read_to_string(&file_path)
+            .unwrap()
+            .chars()
+            .collect::<Vec<_>>();
 
-        let document = parser.parse();
+        let (document, errors) = Parser::new(&content).parse();
         println!("Document: {:#?}", document);
         println!("\nErrors:");
-        for error in parser.errors() {
-            println!("  {}: {}", error.range, error.message);
+        for error in errors.iter() {
+            println!("  {:?}: {}", error.range, error.message);
         }
-        assert!(parser.errors().is_empty());
+        assert!(errors.is_empty());
     }
 
     #[test]
@@ -802,14 +795,17 @@ mod tests {
         let file_path = work_path.join(std::path::Path::new(
             "./lib/analyzer/test_file/InvalidThriftTest.thrift",
         ));
-        let mut parser = Parser::new(FileInput::new(&file_path));
+        let content = fs::read_to_string(&file_path)
+            .unwrap()
+            .chars()
+            .collect::<Vec<_>>();
 
-        let document = parser.parse();
+        let (document, errors) = Parser::new(&content).parse();
         println!("Document: {:#?}", document);
         println!("\nErrors:");
-        for error in parser.errors() {
-            println!("  {}: {}", error.range, error.message);
+        for error in errors.iter() {
+            println!("  {:?}: {}", error.range, error.message);
         }
-        assert!(!parser.errors().is_empty());
+        assert!(!errors.is_empty());
     }
 }

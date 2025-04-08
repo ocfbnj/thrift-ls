@@ -1,17 +1,11 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
 use crate::analyzer::{
-    base::{Error, Location},
+    base::{Error, Position},
     token::{Token, TokenKind},
 };
 
 /// Represents a Thrift scanner.
-pub struct Scanner {
-    input: Vec<char>,    // input data
-    path: PathBuf,       // input data path
+pub struct Scanner<'a> {
+    input: &'a [char],   // input data
     state: ScannerState, // current state
 }
 
@@ -23,69 +17,20 @@ pub struct ScannerState {
     column: usize, // current column offset
 }
 
-/// Represents a input source.
-pub trait Input {
-    /// Returns the content of the input source.
-    fn content(&self) -> Vec<char>;
-    /// Returns the path of the input source.
-    fn path(&self) -> PathBuf;
-}
-
-/// Represents a file input source.
-pub struct FileInput {
-    path: PathBuf,
-    content: Vec<char>,
-}
-
-impl FileInput {
-    /// Creates a new file input source.
-    pub fn new(file_path: &Path) -> Self {
-        let content = fs::read_to_string(&file_path).unwrap().chars().collect();
-
-        FileInput {
-            path: file_path.to_path_buf(),
-            content,
-        }
-    }
-
-    /// Creates a new file input source with content.
-    pub fn new_with_content(file_path: &Path, content: &[char]) -> Self {
-        FileInput {
-            path: file_path.to_path_buf(),
-            content: content.to_vec(),
+impl Into<Position> for ScannerState {
+    fn into(self) -> Position {
+        Position {
+            line: self.line as u32,
+            column: self.column as u32,
         }
     }
 }
 
-impl Input for FileInput {
-    fn content(&self) -> Vec<char> {
-        self.content.clone()
-    }
-
-    fn path(&self) -> PathBuf {
-        self.path.clone()
-    }
-}
-
-/// Represents an empty input source.
-pub struct EmptyInput;
-
-impl Input for EmptyInput {
-    fn content(&self) -> Vec<char> {
-        vec![]
-    }
-
-    fn path(&self) -> PathBuf {
-        PathBuf::new()
-    }
-}
-
-impl Scanner {
-    /// Creates a new scanner with the given input source.
-    pub fn new(input: impl Input) -> Self {
+impl<'a> Scanner<'a> {
+    /// Creates a new scanner with the given input data.
+    pub fn new(input: &'a [char]) -> Self {
         Scanner {
-            input: input.content(),
-            path: input.path(),
+            input,
             state: ScannerState {
                 offset: 0,
                 line: 1,
@@ -124,14 +69,9 @@ impl Scanner {
                 }
                 '/' => {
                     if self.state.offset + 1 >= self.input.len() {
-                        let location = Location {
-                            line: self.state.line,
-                            column: self.state.column,
-                            path: self.path.clone(),
-                        };
                         token = Some(Token {
                             kind: TokenKind::Invalid(ch),
-                            location,
+                            position: self.state.into(),
                         });
                         self.state.offset += 1;
                         self.state.column += 1;
@@ -141,18 +81,13 @@ impl Scanner {
                     let start = self.state.offset;
                     let (offset, ok) = self.scan_line_comment();
                     if ok {
-                        let location = Location {
-                            line: self.state.line,
-                            column: self.state.column,
-                            path: self.path.clone(),
-                        };
                         token = Some(Token {
                             kind: TokenKind::Comment(
                                 self.input[start + 2..start + offset]
                                     .iter()
                                     .collect::<String>(),
                             ),
-                            location,
+                            position: self.state.into(),
                         });
                         self.state.offset += offset;
                         self.state.column = 1;
@@ -161,11 +96,7 @@ impl Scanner {
                     }
 
                     let (offset, line_offset, column_offset, ok) = self.scan_block_comment();
-                    let location = Location {
-                        line: self.state.line,
-                        column: self.state.column,
-                        path: self.path.clone(),
-                    };
+                    let position = self.state.into();
                     if ok {
                         token = Some(Token {
                             kind: TokenKind::BlockComment(
@@ -173,13 +104,13 @@ impl Scanner {
                                     .iter()
                                     .collect::<String>(),
                             ),
-                            location,
+                            position,
                         })
                     } else {
                         let value = self.input[start..start + offset].iter().collect::<String>();
                         let tk = Token {
                             kind: TokenKind::InvalidString(value.clone()),
-                            location,
+                            position,
                         };
                         err = Some(Error {
                             range: tk.range(),
@@ -200,21 +131,17 @@ impl Scanner {
                     let start = self.state.offset;
                     let offset = self.scan_identifier();
                     let value = self.input[start..start + offset].iter().collect::<String>();
-                    let location = Location {
-                        line: self.state.line,
-                        column: self.state.column,
-                        path: self.path.clone(),
-                    };
+                    let position = self.state.into();
 
                     if let Some(tok) = TokenKind::from_string(&value) {
                         token = Some(Token {
                             kind: tok,
-                            location,
+                            position,
                         });
                     } else {
                         token = Some(Token {
                             kind: TokenKind::Identifier(value),
-                            location,
+                            position,
                         });
                     }
 
@@ -227,21 +154,17 @@ impl Scanner {
                     let value = self.input[start + 1..start + offset - 1]
                         .iter()
                         .collect::<String>();
-                    let location = Location {
-                        line: self.state.line,
-                        column: self.state.column,
-                        path: self.path.clone(),
-                    };
+                    let position = self.state.into();
 
                     if ok {
                         token = Some(Token {
                             kind: TokenKind::Literal(value),
-                            location,
+                            position,
                         });
                     } else {
                         let tk = Token {
                             kind: TokenKind::InvalidString(value.clone()),
-                            location,
+                            position,
                         };
                         err = Some(Error {
                             range: tk.range(),
@@ -276,26 +199,22 @@ impl Scanner {
                     }
 
                     let value = self.input[start..start + offset].iter().collect::<String>();
-                    let location = Location {
-                        line: self.state.line,
-                        column: self.state.column,
-                        path: self.path.clone(),
-                    };
+                    let position = self.state.into();
 
                     if int_ok {
                         token = Some(Token {
                             kind: TokenKind::IntConstant(value),
-                            location,
+                            position,
                         });
                     } else if double_ok {
                         token = Some(Token {
                             kind: TokenKind::DoubleConstant(value),
-                            location,
+                            position,
                         });
                     } else {
                         token = Some(Token {
                             kind: TokenKind::InvalidString(value),
-                            location,
+                            position,
                         })
                     }
 
@@ -306,21 +225,17 @@ impl Scanner {
                     let start = self.state.offset;
                     let (offset, double_ok) = self.scan_double_constant();
                     let value = self.input[start..start + offset].iter().collect::<String>();
-                    let location = Location {
-                        line: self.state.line,
-                        column: self.state.column,
-                        path: self.path.clone(),
-                    };
+                    let position = self.state.into();
 
                     if !double_ok {
                         token = Some(Token {
                             kind: TokenKind::InvalidString(value),
-                            location,
+                            position,
                         })
                     } else {
                         token = Some(Token {
                             kind: TokenKind::DoubleConstant(value),
-                            location,
+                            position,
                         });
                     }
 
@@ -328,21 +243,17 @@ impl Scanner {
                     self.state.column += offset;
                 }
                 _ => {
-                    let location = Location {
-                        line: self.state.line,
-                        column: self.state.column,
-                        path: self.path.clone(),
-                    };
+                    let position = self.state.into();
 
                     if let Some(tok) = TokenKind::from_char(ch) {
                         token = Some(Token {
                             kind: tok,
-                            location,
+                            position,
                         });
                     } else {
                         token = Some(Token {
                             kind: TokenKind::Invalid(ch),
-                            location,
+                            position,
                         })
                     }
 
@@ -379,34 +290,25 @@ impl Scanner {
     }
 }
 
-impl Scanner {
+impl<'a> Scanner<'a> {
+    /// Saves the current state.
     pub fn save_state(&self) -> ScannerState {
         self.state
     }
 
+    /// Restores the state.
     pub fn restore_state(&mut self, state: ScannerState) {
         self.state = state;
     }
-
-    pub fn reset(&mut self, input: impl Input) {
-        self.input = input.content();
-        self.path = input.path();
-        self.state = ScannerState {
-            offset: 0,
-            line: 1,
-            column: 1,
-        };
-    }
 }
 
-impl Scanner {
+impl<'a> Scanner<'a> {
     fn eof(&self) -> Token {
         Token {
             kind: TokenKind::Eof,
-            location: Location {
-                line: self.state.line,
-                column: self.state.column,
-                path: self.path.clone(),
+            position: Position {
+                line: self.state.line as u32,
+                column: self.state.column as u32,
             },
         }
     }
@@ -637,7 +539,7 @@ impl Scanner {
 
 #[cfg(test)]
 mod tests {
-    use std::{env, path::Path};
+    use std::{env, fs, path::Path};
 
     use super::*;
 
@@ -645,7 +547,11 @@ mod tests {
     fn test_scan() {
         let work_path = env::current_dir().unwrap();
         let file_path = work_path.join(Path::new("./lib/analyzer/test_file/ThriftTest.thrift"));
-        let mut scanner = Scanner::new(FileInput::new(&file_path));
+        let content = fs::read_to_string(&file_path)
+            .unwrap()
+            .chars()
+            .collect::<Vec<_>>();
+        let mut scanner = Scanner::new(&content);
 
         loop {
             let (token, err) = scanner.scan();

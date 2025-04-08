@@ -1,12 +1,12 @@
 use std::fmt::{Display, Formatter, Result};
 
-use crate::analyzer::base::{Location, Range};
+use crate::analyzer::base::{Position, Range};
 
-/// Represents a Thrift token in the input stream.
+/// Represents a Thrift token in a document.
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Token {
     pub kind: TokenKind,
-    pub location: Location,
+    pub position: Position,
 }
 
 impl Token {
@@ -43,10 +43,10 @@ impl Token {
 
     /// Returns the range of the token.
     pub fn range(&self) -> Range {
-        let mut end = self.location.clone();
-        end.column += self.kind.len();
+        let mut end = self.position;
+        end.column += self.kind.len() as u32;
         Range {
-            start: self.location.clone(),
+            start: self.position,
             end,
         }
     }

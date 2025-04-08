@@ -1,60 +1,24 @@
-use std::{fmt, path::PathBuf};
+//! Base types for the analyzer.
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Location {
-    pub path: PathBuf,
-    pub line: usize,
-    pub column: usize,
+/// Represents a location in a document.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Position {
+    /// Line number in a document (one-based).
+    pub line: u32,
+    /// Column offset on a line in a document (one-based).
+    pub column: u32,
 }
 
-impl Default for Location {
-    fn default() -> Self {
-        Location {
-            path: PathBuf::default(),
-            line: 1,
-            column: 1,
-        }
-    }
-}
-
-impl fmt::Display for Location {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}:{}:{}", self.path.display(), self.line, self.column)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
+/// Represents a range in a document.
+#[derive(Debug, Clone)]
 pub struct Range {
-    pub start: Location,
-    pub end: Location,
+    /// Start position of the range.
+    pub start: Position,
+    /// End position of the range.
+    pub end: Position,
 }
 
-impl fmt::Display for Range {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.start.path == self.end.path && self.start.line == self.end.line {
-            write!(
-                f,
-                "{}:{}:{}-{}",
-                self.start.path.display(),
-                self.start.line,
-                self.start.column,
-                self.end.column
-            )
-        } else {
-            write!(
-                f,
-                "{}:{}:{}-{}:{}:{}",
-                self.start.path.display(),
-                self.start.line,
-                self.start.column,
-                self.end.path.display(),
-                self.end.line,
-                self.end.column
-            )
-        }
-    }
-}
-
+/// Represents a error in the document.
 #[derive(Debug, Clone)]
 pub struct Error {
     pub range: Range,

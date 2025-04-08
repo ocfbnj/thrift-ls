@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::analyzer::base::{self, Location};
+use crate::analyzer::base::{self};
 
 // represents request message or notification message
 #[derive(Debug, Serialize, Deserialize)]
@@ -131,7 +131,7 @@ pub struct PublishDiagnosticsParams {
     pub diagnostics: Vec<Diagnostic>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub range: Range,
@@ -140,7 +140,18 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl From<base::Error> for Diagnostic {
+    fn from(value: base::Error) -> Self {
+        Diagnostic {
+            range: value.range.into(),
+            severity: Some(1),
+            source: Some(env!("CARGO_PKG_NAME").to_string()),
+            message: value.message,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Range {
     pub start: Position,
@@ -156,15 +167,15 @@ impl From<base::Range> for Range {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Position {
     pub line: u32,
     pub character: u32,
 }
 
-impl From<Location> for Position {
-    fn from(value: Location) -> Self {
+impl From<base::Position> for Position {
+    fn from(value: base::Position) -> Self {
         Position {
             line: value.line as u32 - 1,
             character: value.column as u32 - 1,
