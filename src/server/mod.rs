@@ -219,7 +219,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
     }
 
     pub async fn did_close(&mut self, message: BaseMessage) {
-        let _params = match message.params {
+        let params = match message.params {
             Some(params) => match serde_json::from_value::<DidCloseTextDocumentParams>(params) {
                 Ok(params) => params,
                 Err(e) => {
@@ -232,6 +232,8 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
                 return;
             }
         };
+
+        self.remove_document(&params.text_document.uri).await;
     }
 
     pub async fn semantic_tokens_full(&mut self, message: BaseMessage) {
@@ -281,6 +283,14 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
         };
 
         self.analyzer.sync_document(path.clone(), content);
+    }
+
+    async fn remove_document(&mut self, uri: &str) {
+        let path = match parse_uri_to_path(&uri) {
+            Some(x) => x,
+            None => return,
+        };
+        self.analyzer.remove_document(path.clone());
     }
 
     async fn publish_diagnostics(&mut self) {

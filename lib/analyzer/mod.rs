@@ -57,6 +57,15 @@ impl Analyzer {
         self.analyze(&path);
     }
 
+    /// Remove a document.
+    pub fn remove_document(&mut self, path: PathBuf) {
+        self.documents.remove(&path);
+        self.document_nodes.remove(&path);
+        self.symbol_tables.remove(&path);
+        self.diagnostics.remove(&path);
+        self.semantic_tokens.remove(&path);
+    }
+
     /// Get the diagnostics for all files.
     pub fn diagnostics(&self) -> &HashMap<PathBuf, Vec<Diagnostic>> {
         &self.diagnostics
