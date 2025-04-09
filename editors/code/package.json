@@ -1,22 +1,27 @@
 {
     "name": "thrift-ls",
-    "displayName": "Thrift Language Server",
-    "description": "Language server for Apache Thrift",
     "version": "0.1.1",
-    "repository": {
-        "url": "https://github.com/ocfbnj/thrift-ls"
-    },
     "publisher": "ocfbnj",
     "author": {
         "name": "ocfbnj"
     },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ocfbnj/thrift-ls.git"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
+    "license": "SEE LICENSE IN LICENSE",
+    "displayName": "Thrift Language Server",
+    "description": "Language server for Apache Thrift",
     "categories": [
         "Programming Languages"
     ],
-    "main": "./out/extension.js",
+    "keywords": [
+        "thrift"
+    ],
+    "main": "./out/main.js",
     "contributes": {
         "languages": [
             {
@@ -39,15 +44,9 @@
             }
         ]
     },
-    "scripts": {
-        "vscode:prepublish": "npm run compile",
-        "compile": "webpack --mode production",
-        "watch": "webpack --mode development --watch",
-        "pretest": "npm run compile && npm run lint",
-        "lint": "eslint src --ext ts",
-        "test": "node ./out/test/runTest.js",
-        "package": "vsce package",
-        "publish": "vsce publish"
+    "dependencies": {
+        "vscode-languageclient": "^8.1.0",
+        "which": "^3.0.1"
     },
     "devDependencies": {
         "@types/node": "^20.11.24",
@@ -63,8 +62,9 @@
         "webpack": "^5.90.3",
         "webpack-cli": "^5.1.4"
     },
-    "dependencies": {
-        "vscode-languageclient": "^8.1.0",
-        "which": "^3.0.1"
-    }
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "webpack --mode production"
+    },
+    "icon": "icon.png"
 }
