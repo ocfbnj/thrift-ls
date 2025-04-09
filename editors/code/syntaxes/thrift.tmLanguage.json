@@ -11,6 +11,11 @@
             "comment": "Line comments"
         },
         {
+            "name": "comment.line.pound.thrift",
+            "match": "#.*$",
+            "comment": "Pound comments"
+        },
+        {
             "name": "comment.block.thrift",
             "begin": "/\\*",
             "end": "\\*/",

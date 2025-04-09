@@ -127,6 +127,21 @@ impl<'a> Scanner<'a> {
                     self.state.column += column_offset;
                     self.state.line += line_offset;
                 }
+                '#' => {
+                    let start = self.state.offset;
+                    let offset = self.scan_pound_comment();
+                    let value = self.input[start..start + offset].iter().collect::<String>();
+                    let position = self.state.into();
+
+                    token = Some(Token {
+                        kind: TokenKind::PoundComment(value),
+                        position,
+                    });
+
+                    self.state.offset += offset;
+                    self.state.column = 1;
+                    self.state.line += 1;
+                }
                 'a'..='z' | 'A'..='Z' | '_' => {
                     let start = self.state.offset;
                     let offset = self.scan_identifier();
@@ -150,7 +165,7 @@ impl<'a> Scanner<'a> {
                 }
                 '\'' | '"' => {
                     let start = self.state.offset;
-                    let (offset, line_offset, ok) = self.scan_literal(ch);
+                    let (offset, line_offset, column_offset, ok) = self.scan_literal(ch);
                     let value = self.input[start + 1..start + offset - 1]
                         .iter()
                         .collect::<String>();
@@ -173,8 +188,12 @@ impl<'a> Scanner<'a> {
                         token = Some(tk);
                     }
 
+                    if line_offset > 0 {
+                        debug_assert!(column_offset > 0);
+                        self.state.column = 0;
+                    }
                     self.state.offset += offset;
-                    self.state.column += offset;
+                    self.state.column += column_offset;
                     self.state.line += line_offset;
                 }
                 '+' | '-' | '0'..='9' => {
@@ -329,26 +348,37 @@ impl<'a> Scanner<'a> {
     }
 
     // scan the next literal and return the end offset and line offset.
-    fn scan_literal(&mut self, delimiter: char) -> (usize, usize, bool) {
+    fn scan_literal(&mut self, delimiter: char) -> (usize, usize, usize, bool) {
         let mut offset = 1;
         let mut line_offset = 0;
+        let mut column_offset = 1;
         let mut prev_ch = delimiter;
 
         while self.state.offset + offset < self.input.len() {
             let ch = self.input[self.state.offset + offset];
             offset += 1;
+            column_offset += 1;
 
             if ch == delimiter && prev_ch != '\\' {
-                return (offset, line_offset, true);
+                return (offset, line_offset, column_offset, true);
             }
             if ch == '\n' {
                 line_offset += 1;
+                column_offset = 1;
+            } else if ch == '\r' {
+                if self.state.offset + offset < self.input.len()
+                    && self.input[self.state.offset + offset] as char == '\n'
+                {
+                    offset += 1;
+                }
+                line_offset += 1;
+                column_offset = 1;
             }
 
             prev_ch = ch;
         }
 
-        (offset, line_offset, false)
+        (offset, line_offset, column_offset, false)
     }
 
     // scan the next integer constant and return the end offset.
@@ -506,13 +536,21 @@ impl<'a> Scanner<'a> {
             if ch == '\n' {
                 line_offset += 1;
                 column_offset = 1;
+            } else if ch == '\r' {
+                if self.state.offset + offset < self.input.len()
+                    && self.input[self.state.offset + offset] as char == '\n'
+                {
+                    offset += 1;
+                }
+                line_offset += 1;
+                column_offset = 1;
             }
 
             if self.state.offset + offset >= self.input.len() {
                 return (offset, line_offset, column_offset, false);
             }
 
-            // sanc delimiter
+            // scan delimiter
             let next_ch = self.input[self.state.offset + offset];
             if ch == '*' && next_ch == '/' {
                 offset += 1;
@@ -537,6 +575,28 @@ impl<'a> Scanner<'a> {
         }
 
         (offset, line_offset, column_offset, true)
+    }
+
+    // scan the next pound comment and return the end offset.
+    fn scan_pound_comment(&mut self) -> usize {
+        let mut offset = 1;
+
+        while self.state.offset + offset < self.input.len() {
+            let ch = self.input[self.state.offset + offset];
+            offset += 1;
+            if ch == '\n' {
+                break;
+            } else if ch == '\r' {
+                if self.state.offset + offset < self.input.len()
+                    && self.input[self.state.offset + offset] as char == '\n'
+                {
+                    offset += 1;
+                }
+                break;
+            }
+        }
+
+        offset
     }
 }
 

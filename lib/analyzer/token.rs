@@ -29,6 +29,7 @@ impl Token {
         match self.kind {
             TokenKind::Comment(_) => true,
             TokenKind::BlockComment(_) => true,
+            TokenKind::PoundComment(_) => true,
             _ => false,
         }
     }
@@ -94,6 +95,7 @@ pub enum TokenKind {
     // comments
     Comment(String),      // // comment
     BlockComment(String), // /* comment */
+    PoundComment(String), // # comment
 
     // constants
     IntConstant(String),    // 123
@@ -155,6 +157,7 @@ impl Display for TokenKind {
             TokenKind::Rbrack => write!(f, "]"),
             TokenKind::Comment(ref s) => write!(f, "//{}", s),
             TokenKind::BlockComment(ref s) => write!(f, "/*{}*/", s),
+            TokenKind::PoundComment(ref s) => write!(f, "#{}", s),
             TokenKind::IntConstant(ref s) => write!(f, "{}", s),
             TokenKind::DoubleConstant(ref s) => write!(f, "{}", s),
             TokenKind::NamespaceScope(ref s) => write!(f, "{}", s),
@@ -205,6 +208,7 @@ impl TokenKind {
             TokenKind::Rbrack => 1,
             TokenKind::Comment(ref s) => s.len() + 2,
             TokenKind::BlockComment(ref s) => s.len() + 4,
+            TokenKind::PoundComment(ref s) => s.len() + 1,
             TokenKind::IntConstant(ref s) => s.len(),
             TokenKind::DoubleConstant(ref s) => s.len(),
             TokenKind::NamespaceScope(ref s) => s.len(),
