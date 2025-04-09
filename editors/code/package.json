@@ -2,7 +2,14 @@
     "name": "thrift-ls",
     "displayName": "Thrift Language Server",
     "description": "Language server for Apache Thrift",
-    "version": "0.1.0",
+    "version": "0.1.1",
+    "repository": {
+        "url": "https://github.com/ocfbnj/thrift-ls"
+    },
+    "publisher": "ocfbnj",
+    "author": {
+        "name": "ocfbnj"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -34,22 +41,30 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
-        "watch": "tsc -watch -p ./",
+        "compile": "webpack --mode production",
+        "watch": "webpack --mode development --watch",
         "pretest": "npm run compile && npm run lint",
         "lint": "eslint src --ext ts",
-        "test": "node ./out/test/runTest.js"
+        "test": "node ./out/test/runTest.js",
+        "package": "vsce package",
+        "publish": "vsce publish"
     },
     "devDependencies": {
+        "@types/node": "^20.11.24",
         "@types/vscode": "^1.85.0",
-        "@types/node": "18.x",
-        "@typescript-eslint/eslint-plugin": "^6.15.0",
-        "@typescript-eslint/parser": "^6.15.0",
-        "eslint": "^8.56.0",
+        "@types/which": "^3.0.4",
+        "@typescript-eslint/eslint-plugin": "^7.1.1",
+        "@typescript-eslint/parser": "^7.1.1",
+        "@vscode/test-electron": "^2.3.8",
+        "@vscode/vsce": "^2.24.0",
+        "eslint": "^8.57.0",
+        "ts-loader": "^9.5.1",
         "typescript": "^5.3.3",
-        "@vscode/test-electron": "^2.3.8"
+        "webpack": "^5.90.3",
+        "webpack-cli": "^5.1.4"
     },
     "dependencies": {
-        "vscode-languageclient": "^8.1.0"
+        "vscode-languageclient": "^8.1.0",
+        "which": "^3.0.1"
     }
 }
