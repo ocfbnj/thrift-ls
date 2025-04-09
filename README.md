@@ -1,3 +1,3 @@
 # thrift-ls
 
-Work in progress.
+A Thrift language server.
