@@ -301,10 +301,9 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
         let location = self
             .analyzer
             .definition(&path, params.position.into())
-            .map(|(path, definition)| (path, definition.identifier().range.clone().into()))
-            .map(|(path, range)| Location {
-                uri: path_to_uri(&path),
-                range,
+            .map(|location| Location {
+                uri: path_to_uri(&location.path),
+                range: location.range.into(),
             });
 
         let response = BaseResponse {

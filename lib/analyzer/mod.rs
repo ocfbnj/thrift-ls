@@ -14,8 +14,7 @@ use std::{
     rc::Rc,
 };
 
-use ast::DefinitionNode;
-use base::Position;
+use base::{Location, Position};
 
 use crate::analyzer::{
     ast::{
@@ -77,17 +76,17 @@ impl Analyzer {
     }
 
     /// Get the definition at a specific position.
-    pub fn definition(
-        &self,
-        path: &str,
-        pos: Position,
-    ) -> Option<(String, Rc<dyn DefinitionNode>)> {
+    pub fn definition(&self, path: &str, pos: Position) -> Option<Location> {
         let document_node = self.document_nodes.get(path)?;
         let identifier = self.find_identifier(document_node, pos)?;
         let symbol_table = self.symbol_tables.get(path)?;
         symbol_table
             .borrow()
             .find_definition_of_identifier_type(identifier)
+            .map(|(path, definition)| Location {
+                path,
+                range: definition.range(),
+            })
     }
 }
 

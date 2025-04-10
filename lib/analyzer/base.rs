@@ -24,6 +24,13 @@ impl Range {
     }
 }
 
+/// Represents a range in the path.
+#[derive(Debug, Clone)]
+pub struct Location {
+    pub path: String,
+    pub range: Range,
+}
+
 /// Represents a error in the document.
 #[derive(Debug, Clone)]
 pub struct Error {
