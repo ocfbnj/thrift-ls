@@ -17,17 +17,14 @@ use std::{
 use ast::DefinitionNode;
 use base::Position;
 
-use crate::{
-    analyzer::{
-        ast::{
-            DocumentNode, ExceptionNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode,
-            Node, ServiceNode, SetTypeNode, StructNode, UnionNode,
-        },
-        base::Error,
-        parser::Parser,
-        symbol::SymbolTable,
+use crate::analyzer::{
+    ast::{
+        DocumentNode, ExceptionNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode, Node,
+        ServiceNode, SetTypeNode, StructNode, UnionNode,
     },
-    lsp::{self, Diagnostic},
+    base::Error,
+    parser::Parser,
+    symbol::SymbolTable,
 };
 
 /// Analyzer for Thrift files.
@@ -37,7 +34,7 @@ pub struct Analyzer {
     document_nodes: HashMap<PathBuf, DocumentNode>,
     symbol_tables: HashMap<PathBuf, Rc<RefCell<SymbolTable>>>,
 
-    diagnostics: HashMap<PathBuf, Vec<Diagnostic>>,
+    errors: HashMap<PathBuf, Vec<Error>>,
     semantic_tokens: HashMap<PathBuf, Vec<u32>>,
 }
 
@@ -48,7 +45,7 @@ impl Analyzer {
             documents: HashMap::new(),
             document_nodes: HashMap::new(),
             symbol_tables: HashMap::new(),
-            diagnostics: HashMap::new(),
+            errors: HashMap::new(),
             semantic_tokens: HashMap::new(),
         }
     }
@@ -65,13 +62,13 @@ impl Analyzer {
         self.documents.remove(&path);
         self.document_nodes.remove(&path);
         self.symbol_tables.remove(&path);
-        self.diagnostics.remove(&path);
+        self.errors.remove(&path);
         self.semantic_tokens.remove(&path);
     }
 
-    /// Get the diagnostics for all files.
-    pub fn diagnostics(&self) -> &HashMap<PathBuf, Vec<Diagnostic>> {
-        &self.diagnostics
+    /// Get the errors for all files.
+    pub fn errors(&self) -> &HashMap<PathBuf, Vec<Error>> {
+        &self.errors
     }
 
     /// Get semantic tokens for a specific file.
@@ -100,7 +97,7 @@ impl Analyzer {
         // clear previous state
         self.document_nodes.remove(path);
         self.symbol_tables.remove(path);
-        self.diagnostics.remove(path);
+        self.errors.remove(path);
         self.semantic_tokens.remove(path);
 
         self.parse_document(path, Rc::new(RefCell::new(HashSet::new())), None);
@@ -123,10 +120,10 @@ impl Analyzer {
                     message: format!("Circular dependency detected: {}", path.display()),
                 };
 
-                self.diagnostics
+                self.errors
                     .entry(source_path.clone())
                     .or_default()
-                    .push(error.into());
+                    .push(error);
             }
             return false;
         }
@@ -153,10 +150,10 @@ impl Analyzer {
                             message: format!("Failed to read file {}: {}", path.display(), e),
                         };
 
-                        self.diagnostics
+                        self.errors
                             .entry(source_path.clone())
                             .or_default()
-                            .push(error.into());
+                            .push(error);
                     }
                     return false;
                 }
@@ -167,10 +164,10 @@ impl Analyzer {
         let (document_node, errors) = Parser::new(content).parse();
 
         // store parser errors
-        self.diagnostics
+        self.errors
             .entry(path.clone())
             .or_default()
-            .extend(errors.into_iter().map(|e| e.into()));
+            .extend(errors.into_iter().map(|e| e));
 
         // track file dependencies
         let mut dependencies = Vec::new();
@@ -222,13 +219,10 @@ impl Analyzer {
                     .borrow_mut()
                     .check_document_types(document_node);
 
-                self.diagnostics.entry(path.clone()).or_default().extend(
-                    symbol_table
-                        .borrow()
-                        .errors()
-                        .iter()
-                        .map(|e| e.clone().into()),
-                );
+                self.errors
+                    .entry(path.clone())
+                    .or_default()
+                    .extend(symbol_table.borrow().errors().iter().map(|e| e.clone()));
             }
         }
     }
@@ -336,10 +330,11 @@ impl Analyzer {
         let mut prev_char = 0;
 
         for (identifier, token_type) in identifiers {
-            let range = lsp::Range::from(identifier.range());
+            let range = identifier.range();
 
-            let line = range.start.line as u32;
-            let char = range.start.character as u32;
+            // convert to 0-based line and column
+            let line = range.start.line - 1 as u32;
+            let char = range.start.column - 1 as u32;
             let length = identifier.name.len() as u32;
 
             // deltaLine: line number relative to the previous token

@@ -1,19 +1,19 @@
-mod rw;
+mod io;
+mod lsp;
 
-use std::{io, path::PathBuf};
+use std::path::PathBuf;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
 
-use rw::{MessageReader, MessageWriter};
-use thrift_ls::{
-    analyzer::Analyzer,
-    lsp::{
-        BaseMessage, BaseResponse, DefinitionParams, DidChangeTextDocumentParams,
-        DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
-        Location, PublishDiagnosticsParams, ResponseError, SemanticTokens, SemanticTokensLegend,
-        SemanticTokensOptions, SemanticTokensParams, ServerInfo,
-    },
+use thrift_ls::analyzer::Analyzer;
+
+use io::{MessageReader, MessageWriter};
+use lsp::{
+    BaseMessage, BaseResponse, DefinitionParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
+    Location, PublishDiagnosticsParams, ResponseError, SemanticTokens, SemanticTokensLegend,
+    SemanticTokensOptions, SemanticTokensParams, ServerInfo,
 };
 
 pub struct LanguageServer<R, W> {
@@ -33,7 +33,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
         }
     }
 
-    pub async fn run(&mut self) -> io::Result<()> {
+    pub async fn run(&mut self) -> std::io::Result<()> {
         log::debug!("Language Server is running");
 
         loop {
@@ -337,15 +337,15 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
     }
 
     async fn publish_diagnostics(&mut self) {
-        let diagnostics_map = self.analyzer.diagnostics();
+        let errors_map = self.analyzer.errors();
 
-        for (path, diagnostics) in diagnostics_map.iter() {
+        for (path, errors) in errors_map.iter() {
             let mut diagnostics_params = PublishDiagnosticsParams {
                 uri: path_to_uri(path),
-                diagnostics: Vec::with_capacity(diagnostics.len()),
+                diagnostics: Vec::with_capacity(errors.len()),
             };
-            for diagnostic in diagnostics {
-                diagnostics_params.diagnostics.push(diagnostic.clone());
+            for error in errors {
+                diagnostics_params.diagnostics.push(error.clone().into());
             }
 
             let message = BaseMessage {

@@ -1,9 +1,9 @@
 use std::io;
 
-use thrift_ls::lsp;
-
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+use super::lsp;
 
 /// A reader for LSP messages.
 pub struct MessageReader<R> {
