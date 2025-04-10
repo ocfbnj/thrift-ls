@@ -10,7 +10,7 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     fs,
-    path::PathBuf,
+    path::Path,
     rc::Rc,
 };
 
@@ -29,13 +29,13 @@ use crate::analyzer::{
 
 /// Analyzer for Thrift files.
 pub struct Analyzer {
-    documents: HashMap<PathBuf, Vec<char>>,
+    documents: HashMap<String, Vec<char>>,
 
-    document_nodes: HashMap<PathBuf, DocumentNode>,
-    symbol_tables: HashMap<PathBuf, Rc<RefCell<SymbolTable>>>,
+    document_nodes: HashMap<String, DocumentNode>,
+    symbol_tables: HashMap<String, Rc<RefCell<SymbolTable>>>,
 
-    errors: HashMap<PathBuf, Vec<Error>>,
-    semantic_tokens: HashMap<PathBuf, Vec<u32>>,
+    errors: HashMap<String, Vec<Error>>,
+    semantic_tokens: HashMap<String, Vec<u32>>,
 }
 
 impl Analyzer {
@@ -51,49 +51,49 @@ impl Analyzer {
     }
 
     /// Sync a document.
-    pub fn sync_document(&mut self, path: PathBuf, content: &str) {
+    pub fn sync_document(&mut self, path: &str, content: &str) {
         self.documents
-            .insert(path.clone(), content.chars().collect());
-        self.analyze(&path);
+            .insert(path.to_string(), content.chars().collect());
+        self.analyze(path);
     }
 
     /// Remove a document.
-    pub fn remove_document(&mut self, path: PathBuf) {
-        self.documents.remove(&path);
-        self.document_nodes.remove(&path);
-        self.symbol_tables.remove(&path);
-        self.errors.remove(&path);
-        self.semantic_tokens.remove(&path);
+    pub fn remove_document(&mut self, path: &str) {
+        self.documents.remove(path);
+        self.document_nodes.remove(path);
+        self.symbol_tables.remove(path);
+        self.errors.remove(path);
+        self.semantic_tokens.remove(path);
     }
 
     /// Get the errors for all files.
-    pub fn errors(&self) -> &HashMap<PathBuf, Vec<Error>> {
+    pub fn errors(&self) -> &HashMap<String, Vec<Error>> {
         &self.errors
     }
 
     /// Get semantic tokens for a specific file.
-    pub fn semantic_tokens(&self, path: &PathBuf) -> Option<&Vec<u32>> {
+    pub fn semantic_tokens(&self, path: &str) -> Option<&Vec<u32>> {
         self.semantic_tokens.get(path)
     }
 
     /// Get the definition at a specific position.
     pub fn definition(
         &self,
-        path: &PathBuf,
+        path: &str,
         pos: Position,
-    ) -> Option<(PathBuf, Rc<dyn DefinitionNode>)> {
+    ) -> Option<(String, Rc<dyn DefinitionNode>)> {
         let document_node = self.document_nodes.get(path)?;
         let identifier = self.find_identifier(document_node, pos)?;
         let symbol_table = self.symbol_tables.get(path)?;
         symbol_table
             .borrow()
-            .find_definition_of_identifier_type(path, identifier)
+            .find_definition_of_identifier_type(identifier)
     }
 }
 
 impl Analyzer {
     /// Analyze a document.
-    fn analyze(&mut self, path: &PathBuf) {
+    fn analyze(&mut self, path: &str) {
         // clear previous state
         self.document_nodes.remove(path);
         self.symbol_tables.remove(path);
@@ -108,20 +108,20 @@ impl Analyzer {
     /// Recursively parse AST and build symbol tables for a file.
     fn parse_document(
         &mut self,
-        path: &PathBuf,
-        visited: Rc<RefCell<HashSet<PathBuf>>>,
-        source: Option<(&PathBuf, &IncludeNode)>,
+        path: &str,
+        visited: Rc<RefCell<HashSet<String>>>,
+        source: Option<(&str, &IncludeNode)>,
     ) -> bool {
         // check for circular dependencies
         if visited.borrow().contains(path) {
             if let Some((source_path, node)) = source {
                 let error = Error {
                     range: node.range(),
-                    message: format!("Circular dependency detected: {}", path.display()),
+                    message: format!("Circular dependency detected: {}", path),
                 };
 
                 self.errors
-                    .entry(source_path.clone())
+                    .entry(source_path.to_string())
                     .or_default()
                     .push(error);
             }
@@ -129,7 +129,7 @@ impl Analyzer {
         }
 
         // mark file as being processed
-        visited.borrow_mut().insert(path.clone());
+        visited.borrow_mut().insert(path.to_string());
 
         // if file is already parsed, return
         if self.document_nodes.contains_key(path) {
@@ -147,11 +147,11 @@ impl Analyzer {
                     if let Some((source_path, node)) = source {
                         let error = Error {
                             range: node.range(),
-                            message: format!("Failed to read file {}: {}", path.display(), e),
+                            message: format!("Failed to read file {}: {}", path, e),
                         };
 
                         self.errors
-                            .entry(source_path.clone())
+                            .entry(source_path.to_string())
                             .or_default()
                             .push(error);
                     }
@@ -165,7 +165,7 @@ impl Analyzer {
 
         // store parser errors
         self.errors
-            .entry(path.clone())
+            .entry(path.to_string())
             .or_default()
             .extend(errors.into_iter().map(|e| e));
 
@@ -174,22 +174,25 @@ impl Analyzer {
         for header in &document_node.headers {
             let header = header.as_ref().as_any();
             if let Some(include) = header.downcast_ref::<IncludeNode>() {
-                if let Some(parent) = path.parent() {
-                    dependencies.push((parent.join(&include.literal), include));
+                if let Some(parent) = Path::new(path).parent() {
+                    dependencies.push((
+                        parent.join(&include.literal).to_string_lossy().to_string(),
+                        include,
+                    ));
                 }
             }
         }
 
         // build symbol table
         let symbol_table = Rc::new(RefCell::new(SymbolTable::new_from_ast(
-            path.clone(),
+            path,
             &document_node,
         )));
 
         // recursively parse dependencies
         for (dep_path, include_node) in dependencies.iter() {
             let res = self.parse_document(dep_path, visited.clone(), Some((path, include_node)));
-            visited.borrow_mut().remove(dep_path);
+            visited.borrow_mut().remove(dep_path.as_str());
             if !res {
                 continue;
             }
@@ -203,8 +206,8 @@ impl Analyzer {
         }
 
         // store document
-        self.symbol_tables.insert(path.clone(), symbol_table);
-        self.document_nodes.insert(path.clone(), document_node);
+        self.symbol_tables.insert(path.to_string(), symbol_table);
+        self.document_nodes.insert(path.to_string(), document_node);
 
         true
     }
@@ -212,7 +215,7 @@ impl Analyzer {
 
 /// Type checking
 impl Analyzer {
-    fn type_checking(&mut self, path: &PathBuf) {
+    fn type_checking(&mut self, path: &str) {
         if let Some(document_node) = self.document_nodes.get(path) {
             if let Some(symbol_table) = self.symbol_tables.get_mut(path) {
                 symbol_table
@@ -220,7 +223,7 @@ impl Analyzer {
                     .check_document_types(document_node);
 
                 self.errors
-                    .entry(path.clone())
+                    .entry(path.to_string())
                     .or_default()
                     .extend(symbol_table.borrow().errors().iter().map(|e| e.clone()));
             }
@@ -231,7 +234,7 @@ impl Analyzer {
 /// Semantic tokens
 impl Analyzer {
     /// Generate semantic tokens for a document.
-    fn generate_semantic_tokens(&mut self, path: &PathBuf) {
+    fn generate_semantic_tokens(&mut self, path: &str) {
         let field_type_identifiers = self.find_field_type_identifiers(path);
         let function_identifiers = self.find_function_identifiers(path);
 
@@ -244,11 +247,11 @@ impl Analyzer {
         }
 
         let new_tokens = self.convert_identifiers_to_semantic_tokens(identifiers);
-        self.semantic_tokens.insert(path.clone(), new_tokens);
+        self.semantic_tokens.insert(path.to_string(), new_tokens);
     }
 
     /// Find all IdentifierNode instances used as field types in the document nodes.
-    fn find_field_type_identifiers(&self, path: &PathBuf) -> Vec<&IdentifierNode> {
+    fn find_field_type_identifiers(&self, path: &str) -> Vec<&IdentifierNode> {
         let mut result = Vec::new();
 
         if let Some(document_node) = self.document_nodes.get(path) {
@@ -303,7 +306,7 @@ impl Analyzer {
         &'a self,
         field_type: &'a Box<dyn Node>,
         result: &mut Vec<&'a IdentifierNode>,
-        path: &PathBuf,
+        path: &str,
     ) {
         let field_type = field_type.as_ref().as_any();
         if let Some(identifier) = field_type.downcast_ref::<IdentifierNode>() {
@@ -358,7 +361,7 @@ impl Analyzer {
     }
 
     /// Find all function identifiers in the document nodes.
-    fn find_function_identifiers(&self, path: &PathBuf) -> Vec<&IdentifierNode> {
+    fn find_function_identifiers(&self, path: &str) -> Vec<&IdentifierNode> {
         let mut result = Vec::new();
 
         if let Some(document_node) = self.document_nodes.get(path) {

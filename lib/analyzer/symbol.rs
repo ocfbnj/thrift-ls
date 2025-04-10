@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
 
 use crate::analyzer::{
     ast::{
@@ -15,8 +15,8 @@ use super::ast::DefinitionNode;
 pub struct SymbolTable {
     types: HashMap<String, Rc<dyn DefinitionNode>>,
     includes: HashMap<String, Rc<RefCell<SymbolTable>>>,
-    path: PathBuf,
-    namespace_to_path: HashMap<String, PathBuf>,
+    path: String,
+    namespace_to_path: HashMap<String, String>,
     errors: Vec<Error>,
 }
 
@@ -26,16 +26,16 @@ impl SymbolTable {
         Self {
             types: HashMap::new(),
             includes: HashMap::new(),
-            path: PathBuf::new(),
+            path: String::new(),
             namespace_to_path: HashMap::new(),
             errors: Vec::new(),
         }
     }
 
     /// Create a new symbol table from an AST.
-    pub fn new_from_ast(path: PathBuf, document: &DocumentNode) -> Self {
+    pub fn new_from_ast(path: &str, document: &DocumentNode) -> Self {
         let mut table = Self::new();
-        table.path = path;
+        table.path = path.to_string();
         document.definitions.iter().for_each(|definition| {
             table.process_definition(definition);
         });
@@ -43,15 +43,15 @@ impl SymbolTable {
     }
 
     /// Add a dependency to the symbol table.
-    pub fn add_dependency(&mut self, path: &PathBuf, dependency: Rc<RefCell<SymbolTable>>) {
-        let namespace = path
+    pub fn add_dependency(&mut self, path: &str, dependency: Rc<RefCell<SymbolTable>>) {
+        let namespace = Path::new(path)
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or_default()
             .to_string();
 
         self.includes.insert(namespace.clone(), dependency);
-        self.namespace_to_path.insert(namespace, path.clone());
+        self.namespace_to_path.insert(namespace, path.to_string());
     }
 
     /// Get the errors.
@@ -98,9 +98,8 @@ impl SymbolTable {
     /// Find a definition of an identifier type.
     pub fn find_definition_of_identifier_type(
         &self,
-        path: &PathBuf,
         identifier: &IdentifierNode,
-    ) -> Option<(PathBuf, Rc<dyn DefinitionNode>)> {
+    ) -> Option<(String, Rc<dyn DefinitionNode>)> {
         // check if the identifier contains a namespace (file name)
         if let Some((namespace, type_name)) = identifier.name.split_once('.') {
             // look up in included files
@@ -110,16 +109,14 @@ impl SymbolTable {
                 range: identifier.range(),
                 name: type_name.to_string(),
             };
-            // get the path of the included file
-            let path = self.namespace_to_path.get(namespace)?;
 
             return included_table
                 .borrow()
-                .find_definition_of_identifier_type(&path, &type_identifier);
+                .find_definition_of_identifier_type(&type_identifier);
         }
 
         // look up type in current symbol table
-        Some((path.clone(), self.types.get(&identifier.name)?.clone()))
+        Some((self.path.clone(), self.types.get(&identifier.name)?.clone()))
     }
 }
 
@@ -142,7 +139,7 @@ impl SymbolTable {
             // base types are always valid
         } else if let Some(identifier) = field_type.as_any().downcast_ref::<IdentifierNode>() {
             if self
-                .find_definition_of_identifier_type(&self.path, identifier)
+                .find_definition_of_identifier_type(identifier)
                 .is_none()
             {
                 self.errors.push(Error {

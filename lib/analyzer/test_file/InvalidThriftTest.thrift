@@ -1,3 +1,5 @@
+include "ThriftTes.thrift"
+
 struc InvalidStruct {
   1: required string name
 }

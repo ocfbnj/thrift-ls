@@ -1,7 +1,7 @@
 mod io;
 mod lsp;
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
@@ -293,14 +293,14 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
             }
         };
 
-        let uri = match parse_uri_to_path(&params.text_document.uri) {
+        let path = match parse_uri_to_path(&params.text_document.uri) {
             Some(x) => x,
             None => return,
         };
 
         let location = self
             .analyzer
-            .definition(&uri, params.position.into())
+            .definition(&path, params.position.into())
             .map(|(path, definition)| (path, definition.identifier().range.clone().into()))
             .map(|(path, range)| Location {
                 uri: path_to_uri(&path),
@@ -325,7 +325,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
             None => return,
         };
 
-        self.analyzer.sync_document(path.clone(), content);
+        self.analyzer.sync_document(&path, content);
     }
 
     async fn remove_document(&mut self, uri: &str) {
@@ -333,7 +333,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
             Some(x) => x,
             None => return,
         };
-        self.analyzer.remove_document(path.clone());
+        self.analyzer.remove_document(&path);
     }
 
     async fn publish_diagnostics(&mut self) {
@@ -341,7 +341,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
 
         for (path, errors) in errors_map.iter() {
             let mut diagnostics_params = PublishDiagnosticsParams {
-                uri: path_to_uri(path),
+                uri: path_to_uri(&path),
                 diagnostics: Vec::with_capacity(errors.len()),
             };
             for error in errors {
@@ -361,7 +361,7 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
     }
 }
 
-fn parse_uri_to_path(uri: &str) -> Option<PathBuf> {
+fn parse_uri_to_path(uri: &str) -> Option<String> {
     let url = match Url::parse(&uri) {
         Ok(url) => url,
         Err(e) => {
@@ -376,24 +376,16 @@ fn parse_uri_to_path(uri: &str) -> Option<PathBuf> {
             return None;
         }
     };
-    Some(path)
+    Some(path.to_string_lossy().to_string())
 }
 
-fn path_to_uri(path: &PathBuf) -> String {
-    if cfg!(windows) {
-        // Windows paths need special handling
-        Url::from_file_path(path)
-            .unwrap_or_else(|_| {
-                // Fallback for UNC paths or other special cases
-                let path_str = path.to_string_lossy();
-                Url::parse(&format!("file:///{}", path_str.replace('\\', "/")))
-                    .unwrap_or_else(|_| Url::parse("file:///").unwrap())
-            })
-            .to_string()
-    } else {
-        // Unix paths are simpler
-        Url::from_file_path(path)
-            .unwrap_or_else(|_| Url::parse("file:///").unwrap())
-            .to_string()
-    }
+fn path_to_uri(path: &str) -> String {
+    let url = match Url::from_file_path(Path::new(path)) {
+        Ok(url) => url,
+        Err(_) => {
+            log::error!("Convert path {} to uri failed", path);
+            return "".to_string();
+        }
+    };
+    url.to_string()
 }

@@ -846,16 +846,14 @@ impl<'a> Parser<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
+    use std::{fs, path::Path};
 
     use super::*;
 
     #[test]
     fn parse_success() {
         let work_path = std::env::current_dir().unwrap();
-        let file_path = work_path.join(std::path::Path::new(
-            "./lib/analyzer/test_file/ThriftTest.thrift",
-        ));
+        let file_path = work_path.join(Path::new("./lib/analyzer/test_file/ThriftTest.thrift"));
         let content = fs::read_to_string(&file_path)
             .unwrap()
             .chars()
@@ -873,7 +871,7 @@ mod tests {
     #[test]
     fn parse_failed() {
         let work_path = std::env::current_dir().unwrap();
-        let file_path = work_path.join(std::path::Path::new(
+        let file_path = work_path.join(Path::new(
             "./lib/analyzer/test_file/InvalidThriftTest.thrift",
         ));
         let content = fs::read_to_string(&file_path)
