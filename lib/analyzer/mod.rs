@@ -11,8 +11,8 @@ pub mod token;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    fs,
-    path::Path,
+    fs, io,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -37,6 +37,8 @@ pub struct Analyzer {
 
     errors: HashMap<String, Vec<Error>>,
     semantic_tokens: HashMap<String, Vec<u32>>,
+
+    pub(crate) wasm_read_file: Option<Box<dyn Fn(String) -> io::Result<String>>>,
 }
 
 impl Analyzer {
@@ -48,6 +50,7 @@ impl Analyzer {
             symbol_tables: HashMap::new(),
             errors: HashMap::new(),
             semantic_tokens: HashMap::new(),
+            wasm_read_file: None,
         }
     }
 
@@ -152,7 +155,7 @@ impl Analyzer {
             content
         } else {
             // try to read from local file system
-            match fs::read_to_string(path) {
+            match self.read_file(path) {
                 Ok(content) => &content.chars().collect(),
                 Err(e) => {
                     if let Some((source_path, node)) = source {
@@ -185,7 +188,7 @@ impl Analyzer {
         for header in &document_node.headers {
             let header = header.as_ref().as_any();
             if let Some(include) = header.downcast_ref::<IncludeNode>() {
-                if let Some(parent) = Path::new(path).parent() {
+                if let Some(parent) = path_parent(path) {
                     dependencies.push((
                         parent.join(&include.literal).to_string_lossy().to_string(),
                         include,
@@ -410,4 +413,33 @@ impl Analyzer {
 
         None
     }
+}
+
+impl Analyzer {
+    fn read_file(&self, path: &str) -> io::Result<String> {
+        if let Some(read_file) = &self.wasm_read_file {
+            read_file(path.to_string())
+        } else {
+            fs::read_to_string(path)
+        }
+    }
+}
+
+/// Returns the parent path of a given path.
+///
+/// Build with WASM target on windows, `Path::new(path).parent()` always return `""`.
+/// So we need to implement our own path_parent function.
+fn path_parent(path: &str) -> Option<PathBuf> {
+    let parent = Path::new(path).parent();
+    if let Some(p) = parent {
+        if p.to_string_lossy().len() > 0 {
+            return Some(p.to_path_buf());
+        }
+    }
+
+    if let Some(p) = path.rfind("\\") {
+        return Some(PathBuf::from(&path[..p]));
+    }
+
+    parent.map(|p| p.to_path_buf())
 }

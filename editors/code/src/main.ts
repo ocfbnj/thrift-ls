@@ -10,7 +10,6 @@ export function activate(context: vscode.ExtensionContext) {
     const serverModule = context.asAbsolutePath(
         path.join('out', 'server.js')
     );
-    console.debug("[Thrift Language Server] serverModule: ", serverModule);
 
     const serverOptions: ServerOptions = {
         run: { module: serverModule, transport: TransportKind.ipc },

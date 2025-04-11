@@ -1,5 +1,5 @@
 import * as url from "node:url"
-
+import * as fs from "node:fs"
 import {
     Location as LspLocation,
     Range as LspRange,
@@ -64,4 +64,21 @@ export function uriToPath(uri: string): string {
 
 export function pathToUri(path: string): string {
     return url.pathToFileURL(path).toString();
+}
+
+interface ReadFileResult {
+    content: string;
+    error: string;
+}
+
+export function readFile(path: string): ReadFileResult {
+    try {
+        const res = fs.readFileSync(path, 'utf8');
+        return { content: res, error: '' };
+    } catch (error) {
+        if (error instanceof Error) {
+            return { content: '', error: error.message };
+        }
+        return { content: '', error: 'Unknown error' };
+    }
 }

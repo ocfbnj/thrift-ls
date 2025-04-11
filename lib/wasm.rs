@@ -2,6 +2,9 @@
 //!
 //! Build: `wasm-pack build --target nodejs`
 
+use std::io;
+
+use js_sys::Function;
 use serde_wasm_bindgen::to_value;
 use wasm_bindgen::prelude::*;
 
@@ -52,5 +55,25 @@ impl Analyzer {
             Some(loc) => to_value(&loc).unwrap(),
             None => JsValue::null(),
         }
+    }
+
+    pub fn set_wasm_read_file(&mut self, read_file: Function) {
+        self.analyzer.wasm_read_file = Some(Box::new(move |path: String| -> io::Result<String> {
+            let args = js_sys::Array::new();
+            args.push(&path.into());
+            let result = read_file.apply(&JsValue::null(), &args).unwrap_or_default();
+            let content =
+                js_sys::Reflect::get(&result, &JsValue::from_str("content")).unwrap_or_default();
+            let error = js_sys::Reflect::get(&result, &JsValue::from_str("error"))
+                .unwrap_or_default()
+                .as_string()
+                .unwrap_or_default();
+            if error.len() > 0 {
+                return Err(io::Error::new(io::ErrorKind::Other, error));
+            }
+
+            let result = content.as_string().unwrap_or_default();
+            Ok(result)
+        }));
     }
 }
