@@ -1,21 +1,26 @@
-const path = require('path');
+const path = require("path");
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
-    target: 'node',
-    mode: 'production',
-    entry: './src/main.ts',
-    output: {
-        path: path.resolve(__dirname, 'out'),
-        filename: 'main.js',
-        libraryTarget: 'commonjs2',
-        devtoolModuleFilenameTemplate: '../[resource-path]'
+    target: "node",
+    entry: {
+        main: "./src/main.ts",
+        server: "./src/server.ts"
     },
-    devtool: 'source-map',
+    output: {
+        path: path.resolve(__dirname, "out"),
+        filename: "[name].js",
+        libraryTarget: "commonjs",
+    },
+    mode: "production",
     externals: {
-        vscode: 'commonjs vscode'
+        vscode: "commonjs vscode",
+    },
+    experiments: {
+        asyncWebAssembly: true,
     },
     resolve: {
-        extensions: ['.ts', '.js']
+        extensions: ['.ts', '.js'],
     },
     module: {
         rules: [
@@ -29,5 +34,15 @@ module.exports = {
                 ]
             }
         ]
-    }
-}; 
+    },
+    plugins: [
+        new CopyWebpackPlugin({
+            patterns: [
+                {
+                    from: path.resolve(__dirname, '../../pkg/thrift_analyzer_bg.wasm'),
+                    to: path.resolve(__dirname, 'out')
+                }
+            ]
+        })
+    ]
+};

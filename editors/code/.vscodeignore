@@ -7,4 +7,5 @@
 **/*.ts
 src/**
 node_modules/**
+eslint.config.mjs
 webpack.config.js

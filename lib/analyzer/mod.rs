@@ -1,3 +1,5 @@
+//! Thrift Analyzer.
+
 pub mod ast;
 pub mod base;
 pub mod macros;
@@ -75,6 +77,16 @@ impl Analyzer {
         self.semantic_tokens.get(path)
     }
 
+    /// Get the semantic token types.
+    pub fn semantic_token_types(&self) -> Vec<String> {
+        vec!["type".to_string(), "function".to_string()]
+    }
+
+    /// Get the semantic token modifiers.
+    pub fn semantic_token_modifiers(&self) -> Vec<String> {
+        vec![]
+    }
+
     /// Get the definition at a specific position.
     pub fn definition(&self, path: &str, pos: Position) -> Option<Location> {
         let document_node = self.document_nodes.get(path)?;
@@ -85,7 +97,7 @@ impl Analyzer {
             .find_definition_of_identifier_type(identifier)
             .map(|(path, definition)| Location {
                 path,
-                range: definition.range(),
+                range: definition.identifier().range(),
             })
     }
 }

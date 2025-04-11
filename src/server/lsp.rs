@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use thrift_ls::analyzer::base;
+use thrift_analyzer::analyzer::base;
 
 // represents request message or notification message
 #[derive(Debug, Serialize, Deserialize)]

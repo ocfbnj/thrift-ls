@@ -1,7 +1,9 @@
 //! Base types for the analyzer.
 
+use serde::{Deserialize, Serialize};
+
 /// Represents a location in a document.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Serialize, Deserialize)]
 pub struct Position {
     /// Line number in a document (one-based).
     pub line: u32,
@@ -10,7 +12,7 @@ pub struct Position {
 }
 
 /// Represents a range in a document.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Range {
     /// Start position of the range.
     pub start: Position,
@@ -25,14 +27,14 @@ impl Range {
 }
 
 /// Represents a range in the path.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Location {
     pub path: String,
     pub range: Range,
 }
 
 /// Represents a error in the document.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Error {
     pub range: Range,
     pub message: String,

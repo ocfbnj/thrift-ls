@@ -45,26 +45,28 @@
         ]
     },
     "dependencies": {
+        "thrift_analyzer": "file:../../pkg",
         "vscode-languageclient": "^8.1.0",
-        "which": "^3.0.1"
+        "vscode-languageserver": "^9.0.1"
     },
     "devDependencies": {
+        "@eslint/js": "^9.24.0",
+        "@stylistic/eslint-plugin": "^4.2.0",
         "@types/node": "^20.11.24",
         "@types/vscode": "^1.85.0",
-        "@types/which": "^3.0.4",
-        "@typescript-eslint/eslint-plugin": "^7.1.1",
-        "@typescript-eslint/parser": "^7.1.1",
-        "@vscode/test-electron": "^2.3.8",
         "@vscode/vsce": "^2.24.0",
-        "eslint": "^8.57.0",
-        "ts-loader": "^9.5.1",
+        "copy-webpack-plugin": "^13.0.0",
+        "eslint": "^9.24.0",
+        "ts-loader": "^9.5.2",
         "typescript": "^5.3.3",
-        "webpack": "^5.90.3",
-        "webpack-cli": "^5.1.4"
+        "typescript-eslint": "^8.29.1",
+        "webpack": "^5.99.5",
+        "webpack-cli": "^6.0.1"
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "webpack --mode production"
+        "compile": "npm run wasm-pack && webpack",
+        "wasm-pack": "wasm-pack build ../.. --target nodejs"
     },
     "icon": "icon.png"
 }

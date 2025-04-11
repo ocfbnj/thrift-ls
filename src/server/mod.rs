@@ -6,7 +6,7 @@ use std::path::Path;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use url::Url;
 
-use thrift_ls::analyzer::Analyzer;
+use thrift_analyzer::analyzer::Analyzer;
 
 use io::{MessageReader, MessageWriter};
 use lsp::{
@@ -121,8 +121,8 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
 
         let semantic_tokens_options = SemanticTokensOptions {
             legend: SemanticTokensLegend {
-                token_types: vec!["type".to_string(), "function".to_string()],
-                token_modifiers: vec![],
+                token_types: self.analyzer.semantic_token_types(),
+                token_modifiers: self.analyzer.semantic_token_modifiers(),
             },
             full: Some(true),
         };
