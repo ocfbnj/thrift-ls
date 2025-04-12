@@ -120,7 +120,7 @@ impl Analyzer {
         };
 
         if offset > 0 && document[offset - 1] == '.' {
-            let word = match self.word_prev_offset(path, offset - 1) {
+            let word = match self.idet_prev_offset(path, offset - 1) {
                 Some(word) => word,
                 None => return vec!["".to_string()],
             };
@@ -493,15 +493,15 @@ impl Analyzer {
         }
     }
 
-    /// Get the word at the previous offset.
-    fn word_prev_offset(&self, path: &str, offset: usize) -> Option<String> {
+    /// Get the identifier at the previous offset. no consider the '.'.
+    fn idet_prev_offset(&self, path: &str, offset: usize) -> Option<String> {
         let document = self.documents.get(path)?;
 
         Some(
             document[..offset]
                 .iter()
                 .rev()
-                .take_while(|c| c.is_ascii_alphanumeric())
+                .take_while(|&&c| c.is_ascii_alphanumeric() || c == '_')
                 .collect::<Vec<_>>()
                 .into_iter()
                 .rev()
