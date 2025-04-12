@@ -12,6 +12,7 @@ This project contains two programs:
 - semantic syntax highlighting.
 - go to definition.
 - diagnostics.
+- completion.
 
 ## How to Build
 

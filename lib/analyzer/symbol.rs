@@ -8,7 +8,7 @@ use crate::analyzer::{
     base::Error,
 };
 
-use super::ast::DefinitionNode;
+use super::ast::{ConstNode, DefinitionNode};
 
 /// Symbol table for a single file.
 #[derive(Debug)]
@@ -52,6 +52,16 @@ impl SymbolTable {
 
         self.includes.insert(namespace.clone(), dependency);
         self.namespace_to_path.insert(namespace, path.to_string());
+    }
+
+    /// Get the types in the symbol table.
+    pub fn types(&self) -> &HashMap<String, Rc<dyn DefinitionNode>> {
+        &self.types
+    }
+
+    /// Get the includes in the symbol table.
+    pub fn includes(&self) -> &HashMap<String, Rc<RefCell<SymbolTable>>> {
+        &self.includes
     }
 
     /// Get the errors.
@@ -122,6 +132,11 @@ impl SymbolTable {
 
 impl SymbolTable {
     fn process_definition(&mut self, definition: &Rc<dyn DefinitionNode>) {
+        // skip const definitions
+        if let Some(_) = definition.as_ref().as_any().downcast_ref::<ConstNode>() {
+            return;
+        }
+
         if self.types.contains_key(definition.name()) {
             self.errors.push(Error {
                 range: definition.range(),

@@ -33,7 +33,7 @@ impl Analyzer {
 
     pub fn errors(&self) -> JsValue {
         let errors = self.analyzer.errors();
-        to_value(errors).unwrap()
+        to_value(errors).unwrap_or_default()
     }
 
     pub fn semantic_tokens(&self, path: &str) -> Option<Vec<u32>> {
@@ -52,9 +52,21 @@ impl Analyzer {
         let pos = analyzer::base::Position { line, column };
 
         match self.analyzer.definition(path, pos) {
-            Some(loc) => to_value(&loc).unwrap(),
+            Some(loc) => to_value(&loc).unwrap_or_default(),
             None => JsValue::null(),
         }
+    }
+
+    pub fn types_for_completion(&self, path: &str, line: u32, column: u32) -> JsValue {
+        let pos = analyzer::base::Position { line, column };
+        let completions = self.analyzer.types_for_completion(path, pos);
+        to_value(&completions).unwrap_or_default()
+    }
+
+    pub fn includes_for_completion(&self, path: &str, line: u32, column: u32) -> JsValue {
+        let pos = analyzer::base::Position { line, column };
+        let completions = self.analyzer.includes_for_completion(path, pos);
+        to_value(&completions).unwrap_or_default()
     }
 
     pub fn set_wasm_read_file(&mut self, read_file: Function) {

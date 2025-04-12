@@ -103,6 +103,46 @@ impl Analyzer {
                 range: definition.identifier().range(),
             })
     }
+
+    /// Get the types for completion.
+    pub fn types_for_completion(&self, path: &str, pos: Position) -> Vec<String> {
+        let offset = match self.offset_at_position(path, pos) {
+            Some(offset) => offset,
+            None => return vec![],
+        };
+        let document = match self.documents.get(path) {
+            Some(document) => document,
+            None => return vec![],
+        };
+        let mut symbol_table = match self.symbol_tables.get(path) {
+            Some(symbol_table) => symbol_table.clone(),
+            None => return vec![],
+        };
+
+        if offset > 0 && document[offset - 1] == '.' {
+            let word = match self.word_prev_offset(path, offset - 1) {
+                Some(word) => word,
+                None => return vec!["".to_string()],
+            };
+            let table = match symbol_table.borrow().includes().get(&word) {
+                Some(table) => table.clone(),
+                None => return vec!["".to_string()],
+            };
+            symbol_table = table;
+        }
+
+        return symbol_table.borrow().types().keys().cloned().collect();
+    }
+
+    /// Get the includes for completion.
+    pub fn includes_for_completion(&self, path: &str, _pos: Position) -> Vec<String> {
+        let symbol_table = match self.symbol_tables.get(path) {
+            Some(symbol_table) => symbol_table,
+            None => return vec![],
+        };
+
+        symbol_table.borrow().includes().keys().cloned().collect()
+    }
 }
 
 impl Analyzer {
@@ -394,6 +434,7 @@ impl Analyzer {
     }
 }
 
+/// Definition
 impl Analyzer {
     /// Find an identifier at a specific position.
     fn find_identifier<'a>(&self, node: &'a dyn Node, pos: Position) -> Option<&'a IdentifierNode> {
@@ -412,6 +453,60 @@ impl Analyzer {
         }
 
         None
+    }
+}
+
+/// Completion
+impl Analyzer {
+    /// Get the offset at a specific position.
+    fn offset_at_position(&self, path: &str, pos: Position) -> Option<usize> {
+        let document = self.documents.get(path)?;
+        let mut offset = 0;
+        let mut cur_pos = Position { line: 1, column: 1 };
+
+        while offset < document.len() {
+            if cur_pos >= pos {
+                break;
+            }
+
+            if document[offset] == '\n' {
+                offset += 1;
+                cur_pos.line += 1;
+                cur_pos.column = 1;
+            } else if document[offset] == '\r' {
+                offset += 1;
+                cur_pos.line += 1;
+                cur_pos.column = 1;
+                if offset < document.len() && document[offset] == '\n' {
+                    offset += 1;
+                }
+            } else {
+                offset += 1;
+                cur_pos.column += 1;
+            }
+        }
+
+        if cur_pos == pos {
+            Some(offset)
+        } else {
+            None
+        }
+    }
+
+    /// Get the word at the previous offset.
+    fn word_prev_offset(&self, path: &str, offset: usize) -> Option<String> {
+        let document = self.documents.get(path)?;
+
+        Some(
+            document[..offset]
+                .iter()
+                .rev()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect(),
+        )
     }
 }
 

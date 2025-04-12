@@ -12,6 +12,9 @@ import {
     Location,
     DidCloseTextDocumentParams,
     Diagnostic,
+    CompletionParams,
+    CompletionItem,
+    CompletionItemKind,
 } from 'vscode-languageserver/node';
 import { Analyzer } from 'thrift_analyzer';
 import { uriToPath, pathToUri, Error, Location as UtilsLocation, toLspDiagnostic, toLspLocation, readFile } from './utils';
@@ -32,6 +35,10 @@ connection.onInitialize((_params: InitializeParams): InitializeResult => {
                 full: true
             },
             definitionProvider: true,
+            completionProvider: {
+                resolveProvider: false,
+                triggerCharacters: ['.'],
+            },
         }
     }
 });
@@ -71,6 +78,21 @@ connection.onDefinition((params: DefinitionParams): Location | null => {
     const result: UtilsLocation = analyzer.definition(path, position.line + 1, position.character + 1);
 
     return toLspLocation(result);
+});
+
+connection.onCompletion((params: CompletionParams): CompletionItem[] => {
+    const path = uriToPath(params.textDocument.uri);
+    const position = params.position;
+    const types: string[] = analyzer.types_for_completion(path, position.line + 1, position.character + 1);
+    let completionItems: CompletionItem[] = types.map((item) => ({ label: item, kind: CompletionItemKind.Struct }));
+
+    if (params.context?.triggerCharacter != '.') {
+        const includes: string[] = analyzer.includes_for_completion(path, position.line + 1, position.character + 1);
+        const includeItems: CompletionItem[] = includes.map((item) => ({ label: item, kind: CompletionItemKind.Module }));
+        completionItems = completionItems.concat(includeItems);
+    }
+
+    return completionItems;
 });
 
 function publishDiagnostics() {

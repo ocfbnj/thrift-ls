@@ -5,3 +5,4 @@
 - semantic syntax highlighting.
 - go to definition.
 - diagnostics.
+- completion.

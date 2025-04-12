@@ -324,7 +324,7 @@ impl MessageWriter {
     }
 
     fn encode_message(&self, message: &impl Serialize) -> String {
-        let content = serde_json::to_string(message).unwrap();
+        let content = serde_json::to_string(message).unwrap_or_default();
         format!("Content-Length: {}\r\n\r\n{}", content.len(), content)
     }
 }
