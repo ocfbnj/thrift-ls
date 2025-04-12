@@ -1,6 +1,6 @@
 {
     "name": "thrift-ls",
-    "version": "0.1.3",
+    "version": "0.1.4",
     "publisher": "ocfbnj",
     "author": {
         "name": "ocfbnj"
@@ -44,6 +44,7 @@
             }
         ]
     },
+    "activationEvents": [],
     "dependencies": {
         "thrift_analyzer": "file:../../pkg",
         "vscode-languageclient": "^8.1.0",

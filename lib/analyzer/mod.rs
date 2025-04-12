@@ -16,6 +16,7 @@ use std::{
     rc::Rc,
 };
 
+use ast::{ConstNode, TypedefNode};
 use base::{Location, Position};
 
 use crate::analyzer::{
@@ -348,6 +349,10 @@ impl Analyzer {
                             }
                         }
                     }
+                } else if let Some(const_node) = definition.downcast_ref::<ConstNode>() {
+                    self.collect_field_type_identifiers(&const_node.field_type, &mut result, path);
+                } else if let Some(typedef_node) = definition.downcast_ref::<TypedefNode>() {
+                    result.push(&typedef_node.identifier);
                 }
             }
         }
