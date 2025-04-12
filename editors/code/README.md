@@ -2,6 +2,6 @@
 
 ## Features
 
-- semantic syntax highlighting
-- go to definition
-- diagnostics
+- semantic syntax highlighting.
+- go to definition.
+- diagnostics.

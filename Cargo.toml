@@ -9,6 +9,12 @@ repository = "https://github.com/ocfbnj/thrift-ls"
 license = "MIT"
 keywords = ["thrift", "language-server"]
 
+[profile.release]
+strip = true
+lto = true
+panic = "abort"
+opt-level = "s"
+
 [lib]
 name = "thrift_analyzer"
 path = "lib/mod.rs"
@@ -40,3 +46,6 @@ tokio = { version = "1.44.1", features = [
     "io-util",
     "sync",
 ] }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
