@@ -10,9 +10,10 @@ use thrift_analyzer::analyzer::Analyzer;
 
 use io::{MessageReader, MessageWriter};
 use lsp::{
-    BaseMessage, BaseResponse, DefinitionParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, InitializeParams, InitializeResult,
-    Location, PublishDiagnosticsParams, ResponseError, SemanticTokens, SemanticTokensLegend,
+    BaseMessage, BaseResponse, CompletionItem, CompletionItemKind, CompletionParams,
+    DefinitionParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, InitializeParams, InitializeResult, Location,
+    PublishDiagnosticsParams, ResponseError, SemanticTokens, SemanticTokensLegend,
     SemanticTokensOptions, SemanticTokensParams, ServerInfo,
 };
 
@@ -78,6 +79,9 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
                 "textDocument/definition" => {
                     self.definition(message).await;
                 }
+                "textDocument/completion" => {
+                    self.completion(message).await;
+                }
                 method => {
                     if method.starts_with("$/") {
                         if !message.is_notification() {
@@ -132,6 +136,10 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
                 "textDocumentSync": 1, // Documents are synced by always sending the full content of the document.
                 "semanticTokensProvider": semantic_tokens_options,
                 "definitionProvider": true,
+                "completionProvider": {
+                    "resolveProvider": false,
+                    "triggerCharacters": ["."],
+                },
             }),
             server_info: Some(ServerInfo {
                 name: env!("CARGO_PKG_NAME").to_string(),
@@ -310,6 +318,75 @@ impl<R: AsyncReadExt + Unpin, W: AsyncWriteExt + Unpin> LanguageServer<R, W> {
             jsonrpc: "2.0".to_string(),
             id: message.id,
             result: serde_json::to_value(location).ok(),
+            error: None,
+        };
+
+        if let Err(e) = self.writer.write_message(&response).await {
+            log::error!("Failed to write response: {}", e);
+        }
+    }
+
+    pub async fn completion(&mut self, message: BaseMessage) {
+        let params = match message.params {
+            Some(params) => match serde_json::from_value::<CompletionParams>(params) {
+                Ok(params) => params,
+                Err(e) => {
+                    log::error!("Failed to parse completion params: {}", e);
+                    return;
+                }
+            },
+            None => {
+                log::error!("Missing params in completion request");
+                return;
+            }
+        };
+
+        let path = match parse_uri_to_path(&params.text_document.uri) {
+            Some(path) => path,
+            None => return,
+        };
+
+        let position = params.position.into();
+        let types = self.analyzer.types_for_completion(&path, position);
+        let mut completion_items: Vec<CompletionItem> = types
+            .iter()
+            .map(|item| CompletionItem {
+                label: item.clone(),
+                kind: CompletionItemKind::Struct,
+            })
+            .collect();
+
+        let trigger_character = params
+            .context
+            .as_ref()
+            .and_then(|c| c.trigger_character.as_ref());
+
+        if trigger_character != Some(&".".to_string()) {
+            let includes = self.analyzer.includes_for_completion(&path, position);
+            let include_items: Vec<CompletionItem> = includes
+                .iter()
+                .map(|item| CompletionItem {
+                    label: item.clone(),
+                    kind: CompletionItemKind::Module,
+                })
+                .collect();
+            completion_items.extend(include_items);
+
+            let keywords = self.analyzer.keywords_for_completion();
+            let keyword_items: Vec<CompletionItem> = keywords
+                .iter()
+                .map(|item| CompletionItem {
+                    label: item.clone(),
+                    kind: CompletionItemKind::Keyword,
+                })
+                .collect();
+            completion_items.extend(keyword_items);
+        }
+
+        let response = BaseResponse {
+            jsonrpc: "2.0".to_string(),
+            id: message.id,
+            result: serde_json::to_value(completion_items).ok(),
             error: None,
         };
 

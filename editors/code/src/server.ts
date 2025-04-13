@@ -90,6 +90,10 @@ connection.onCompletion((params: CompletionParams): CompletionItem[] => {
         const includes: string[] = analyzer.includes_for_completion(path, position.line + 1, position.character + 1);
         const includeItems: CompletionItem[] = includes.map((item) => ({ label: item, kind: CompletionItemKind.Module }));
         completionItems = completionItems.concat(includeItems);
+
+        const keywords: string[] = analyzer.keywords_for_completion();
+        const keywordItems: CompletionItem[] = keywords.map((item) => ({ label: item, kind: CompletionItemKind.Keyword }));
+        completionItems = completionItems.concat(keywordItems);
     }
 
     return completionItems;

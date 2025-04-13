@@ -3,6 +3,7 @@ use std::io;
 use bytes::BytesMut;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use thrift_analyzer::analyzer::base;
@@ -229,6 +230,58 @@ pub struct DefinitionParams {
 pub struct Location {
     pub uri: String,
     pub range: Range,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+    pub context: Option<CompletionContext>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionContext {
+    pub trigger_kind: i32,
+    pub trigger_character: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionItem {
+    pub label: String,
+    pub kind: CompletionItemKind,
+}
+
+#[repr(i32)]
+#[derive(Debug, Serialize_repr, Deserialize_repr)]
+pub enum CompletionItemKind {
+    Text = 1,
+    Method = 2,
+    Function = 3,
+    Constructor = 4,
+    Field = 5,
+    Variable = 6,
+    Class = 7,
+    Interface = 8,
+    Module = 9,
+    Property = 10,
+    Unit = 11,
+    Value = 12,
+    Enum = 13,
+    Keyword = 14,
+    Snippet = 15,
+    Color = 16,
+    File = 17,
+    Reference = 18,
+    Folder = 19,
+    EnumMember = 20,
+    Constant = 21,
+    Struct = 22,
+    Event = 23,
+    Operator = 24,
+    TypeParameter = 25,
 }
 
 #[derive(Debug)]

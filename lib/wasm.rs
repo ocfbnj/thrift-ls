@@ -69,6 +69,11 @@ impl Analyzer {
         to_value(&completions).unwrap_or_default()
     }
 
+    pub fn keywords_for_completion(&self) -> JsValue {
+        let completions = self.analyzer.keywords_for_completion();
+        to_value(&completions).unwrap_or_default()
+    }
+
     pub fn set_wasm_read_file(&mut self, read_file: Function) {
         self.analyzer.wasm_read_file = Some(Box::new(move |path: String| -> io::Result<String> {
             let args = js_sys::Array::new();

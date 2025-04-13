@@ -42,6 +42,30 @@ pub struct Analyzer {
     pub(crate) wasm_read_file: Option<Box<dyn Fn(String) -> io::Result<String>>>,
 }
 
+const KEYWORDS: &[&str] = &[
+    "namespace",
+    "include",
+    "cpp_include",
+    "const",
+    "typedef",
+    "extends",
+    "required",
+    "optional",
+    "oneway",
+    "void",
+    "bool",
+    "byte",
+    "i8",
+    "i16",
+    "i32",
+    "i64",
+    "struct",
+    "enum",
+    "union",
+    "exception",
+    "service",
+];
+
 impl Analyzer {
     /// Create a new analyzer.
     pub fn new() -> Self {
@@ -143,6 +167,11 @@ impl Analyzer {
         };
 
         symbol_table.borrow().includes().keys().cloned().collect()
+    }
+
+    /// Get the keywords for completion.
+    pub fn keywords_for_completion(&self) -> Vec<String> {
+        KEYWORDS.iter().map(|s| s.to_string()).collect()
     }
 }
 
