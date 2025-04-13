@@ -2,20 +2,21 @@ use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
 
 use crate::analyzer::{
     ast::{
-        BaseTypeNode, DocumentNode, ExceptionNode, IdentifierNode, ListTypeNode, MapTypeNode, Node,
-        ServiceNode, SetTypeNode, StructNode, UnionNode,
+        BaseTypeNode, DefinitionNode, DocumentNode, IdentifierNode, ListTypeNode, MapTypeNode,
+        Node, SetTypeNode,
     },
     base::Error,
 };
 
-use super::ast::{ConstNode, DefinitionNode};
+use super::ast::HeaderNode;
 
 /// Symbol table for a single file.
 #[derive(Debug)]
 pub struct SymbolTable {
-    types: HashMap<String, Rc<dyn DefinitionNode>>,
-    includes: HashMap<String, Rc<RefCell<SymbolTable>>>,
     path: String,
+    types: HashMap<String, Rc<DefinitionNode>>,
+    include_nodes: HashMap<String, Rc<HeaderNode>>,
+    includes: HashMap<String, Rc<RefCell<SymbolTable>>>,
     namespace_to_path: HashMap<String, String>,
     errors: Vec<Error>,
 }
@@ -24,9 +25,10 @@ impl SymbolTable {
     /// Create a new empty symbol table.
     pub fn new() -> Self {
         Self {
+            path: String::new(),
             types: HashMap::new(),
             includes: HashMap::new(),
-            path: String::new(),
+            include_nodes: HashMap::new(),
             namespace_to_path: HashMap::new(),
             errors: Vec::new(),
         }
@@ -43,19 +45,28 @@ impl SymbolTable {
     }
 
     /// Add a dependency to the symbol table.
-    pub fn add_dependency(&mut self, path: &str, dependency: Rc<RefCell<SymbolTable>>) {
+    pub fn add_dependency(
+        &mut self,
+        path: &str,
+        node: Rc<HeaderNode>,
+        dependency: Rc<RefCell<SymbolTable>>,
+    ) {
         let namespace = Path::new(path)
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or_default()
             .to_string();
 
+        if let HeaderNode::Include(_) = node.as_ref() {
+            self.include_nodes.insert(namespace.clone(), node);
+        }
+
         self.includes.insert(namespace.clone(), dependency);
         self.namespace_to_path.insert(namespace, path.to_string());
     }
 
     /// Get the types in the symbol table.
-    pub fn types(&self) -> &HashMap<String, Rc<dyn DefinitionNode>> {
+    pub fn types(&self) -> &HashMap<String, Rc<DefinitionNode>> {
         &self.types
     }
 
@@ -72,35 +83,38 @@ impl SymbolTable {
     /// Check the types of the document.
     pub fn check_document_types(&mut self, document: &DocumentNode) {
         for definition in &document.definitions {
-            let definition = definition.as_ref();
-            let definition = definition.as_any();
-
-            if let Some(struct_def) = definition.downcast_ref::<StructNode>() {
-                for field in &struct_def.fields {
-                    self.check_field_type(&*field.field_type);
-                }
-            } else if let Some(union_def) = definition.downcast_ref::<UnionNode>() {
-                for field in &union_def.fields {
-                    self.check_field_type(&*field.field_type);
-                }
-            } else if let Some(exception_def) = definition.downcast_ref::<ExceptionNode>() {
-                for field in &exception_def.fields {
-                    self.check_field_type(&*field.field_type);
-                }
-            } else if let Some(service_def) = definition.downcast_ref::<ServiceNode>() {
-                for function in &service_def.functions {
-                    self.check_field_type(&*function.function_type);
-
-                    for field in &function.fields {
+            match definition.as_ref() {
+                DefinitionNode::Struct(struct_def) => {
+                    for field in &struct_def.fields {
                         self.check_field_type(&*field.field_type);
                     }
+                }
+                DefinitionNode::Union(union_def) => {
+                    for field in &union_def.fields {
+                        self.check_field_type(&*field.field_type);
+                    }
+                }
+                DefinitionNode::Exception(exception_def) => {
+                    for field in &exception_def.fields {
+                        self.check_field_type(&*field.field_type);
+                    }
+                }
+                DefinitionNode::Service(service_def) => {
+                    for function in &service_def.functions {
+                        self.check_field_type(&*function.function_type);
 
-                    if let Some(throws) = &function.throws {
-                        for throw in throws {
-                            self.check_field_type(&*throw.field_type);
+                        for field in &function.fields {
+                            self.check_field_type(&*field.field_type);
+                        }
+
+                        if let Some(throws) = &function.throws {
+                            for throw in throws {
+                                self.check_field_type(&*throw.field_type);
+                            }
                         }
                     }
                 }
+                _ => {}
             }
         }
     }
@@ -109,31 +123,31 @@ impl SymbolTable {
     pub fn find_definition_of_identifier_type(
         &self,
         identifier: &IdentifierNode,
-    ) -> Option<(String, Rc<dyn DefinitionNode>)> {
+    ) -> Option<(String, Rc<DefinitionNode>, Option<Rc<HeaderNode>>)> {
         // check if the identifier contains a namespace (file name)
-        if let Some((namespace, type_name)) = identifier.name.split_once('.') {
+        if let (Some(namespace), identifier) = identifier.split_by_first_dot() {
             // look up in included files
-            let included_table = self.includes.get(namespace)?;
-            // create a new identifier with just the type name
-            let type_identifier = IdentifierNode {
-                range: identifier.range(),
-                name: type_name.to_string(),
-            };
+            let included_table = self.includes.get(&namespace.name)?.borrow();
+            let (path, def, _) = included_table.find_definition_of_identifier_type(&identifier)?;
 
-            return included_table
-                .borrow()
-                .find_definition_of_identifier_type(&type_identifier);
+            // get the header node
+            let header = self.include_nodes.get(&namespace.name)?.clone();
+            return Some((path, def, Some(header)));
         }
 
         // look up type in current symbol table
-        Some((self.path.clone(), self.types.get(&identifier.name)?.clone()))
+        Some((
+            self.path.clone(),
+            self.types.get(&identifier.name)?.clone(),
+            None,
+        ))
     }
 }
 
 impl SymbolTable {
-    fn process_definition(&mut self, definition: &Rc<dyn DefinitionNode>) {
+    fn process_definition(&mut self, definition: &Rc<DefinitionNode>) {
         // skip const definitions
-        if let Some(_) = definition.as_ref().as_any().downcast_ref::<ConstNode>() {
+        if let DefinitionNode::Const(_) = definition.as_ref() {
             return;
         }
 

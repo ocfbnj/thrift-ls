@@ -1,6 +1,8 @@
-use std::{any::Any, fmt::Debug, rc::Rc};
+use std::{any::Any, fmt::Debug, ops::Deref, rc::Rc};
 
-use crate::{analyzer::base::Range, impl_definition_node};
+use crate::analyzer::base::Range;
+
+use super::base::Position;
 
 /// A trait for all AST nodes.
 pub trait Node: Debug + Any {
@@ -12,21 +14,77 @@ pub trait Node: Debug + Any {
     fn children(&self) -> Vec<&dyn Node>;
 }
 
-/// A trait for all definition nodes.
-pub trait DefinitionNode: Node {
-    /// Returns the name of the definition.
-    fn name(&self) -> &str;
-    /// Returns the node as a `dyn Node`.
-    fn as_node(&self) -> &dyn Node;
-    /// Returns the identifier of the definition.
-    fn identifier(&self) -> &IdentifierNode;
+/// An enum representing all possible header nodes.
+#[derive(Debug)]
+pub enum HeaderNode {
+    Include(IncludeNode),
+    CppInclude(CppIncludeNode),
+    Namespace(NamespaceNode),
+}
+
+impl Deref for HeaderNode {
+    type Target = dyn Node;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            HeaderNode::Include(node) => node,
+            HeaderNode::CppInclude(node) => node,
+            HeaderNode::Namespace(node) => node,
+        }
+    }
+}
+
+/// An enum representing all possible definition nodes.
+#[derive(Debug)]
+pub enum DefinitionNode {
+    Const(ConstNode),
+    Typedef(TypedefNode),
+    Enum(EnumNode),
+    Struct(StructNode),
+    Union(UnionNode),
+    Exception(ExceptionNode),
+    Service(ServiceNode),
+}
+
+impl Deref for DefinitionNode {
+    type Target = dyn Node;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            DefinitionNode::Const(node) => node,
+            DefinitionNode::Typedef(node) => node,
+            DefinitionNode::Enum(node) => node,
+            DefinitionNode::Struct(node) => node,
+            DefinitionNode::Union(node) => node,
+            DefinitionNode::Exception(node) => node,
+            DefinitionNode::Service(node) => node,
+        }
+    }
+}
+
+impl DefinitionNode {
+    pub fn name(&self) -> &str {
+        &self.identifier().name
+    }
+
+    pub fn identifier(&self) -> &IdentifierNode {
+        match self {
+            DefinitionNode::Const(node) => &node.identifier,
+            DefinitionNode::Typedef(node) => &node.identifier,
+            DefinitionNode::Enum(node) => &node.identifier,
+            DefinitionNode::Struct(node) => &node.identifier,
+            DefinitionNode::Union(node) => &node.identifier,
+            DefinitionNode::Exception(node) => &node.identifier,
+            DefinitionNode::Service(node) => &node.identifier,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct DocumentNode {
     pub range: Range,
-    pub headers: Vec<Box<dyn Node>>,
-    pub definitions: Vec<Rc<dyn DefinitionNode>>,
+    pub headers: Vec<Rc<HeaderNode>>,
+    pub definitions: Vec<Rc<DefinitionNode>>,
 }
 
 #[derive(Debug)]
@@ -49,10 +107,55 @@ pub struct NamespaceNode {
     pub ext: Option<ExtNode>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IdentifierNode {
     pub range: Range,
     pub name: String,
+}
+
+impl IdentifierNode {
+    /// Check if the position is in the namespace.
+    pub fn position_in_namespace(&self, pos: Position) -> bool {
+        let dot_index = match self.name.find('.') {
+            Some(index) => index,
+            None => return false,
+        };
+
+        self.range.contains(pos)
+            && pos.column >= self.range.start.column
+            && pos.column <= self.range.start.column + dot_index as u32
+    }
+
+    /// Split the identifier by the first dot.
+    pub fn split_by_first_dot(&self) -> (Option<IdentifierNode>, IdentifierNode) {
+        let dot_index = match self.name.find('.') {
+            Some(index) => index,
+            None => return (None, self.clone()),
+        };
+
+        let namespace = IdentifierNode {
+            range: Range {
+                start: self.range.start,
+                end: Position {
+                    line: self.range.start.line,
+                    column: self.range.start.column + dot_index as u32,
+                },
+            },
+            name: self.name[..dot_index].to_string(),
+        };
+        let identifier = IdentifierNode {
+            range: Range {
+                start: Position {
+                    line: self.range.start.line,
+                    column: self.range.start.column + dot_index as u32,
+                },
+                end: self.range.end,
+            },
+            name: self.name[dot_index + 1..].to_string(),
+        };
+
+        (Some(namespace), identifier)
+    }
 }
 
 #[derive(Debug)]
@@ -130,12 +233,18 @@ pub struct StructNode {
 #[derive(Debug)]
 pub struct FieldNode {
     pub range: Range,
-    pub field_id: Option<i32>,
+    pub field_id: Option<FieldIdNode>,
     pub field_req: Option<String>,
     pub field_type: Box<dyn Node>,
     pub identifier: IdentifierNode,
     pub default_value: Option<ConstValueNode>,
     pub ext: Option<ExtNode>,
+}
+
+#[derive(Debug)]
+pub struct FieldIdNode {
+    pub range: Range,
+    pub id: i32,
 }
 
 #[derive(Debug)]
@@ -188,8 +297,8 @@ impl Node for DocumentNode {
 
     fn children(&self) -> Vec<&dyn Node> {
         let mut children = Vec::new();
-        children.extend(self.headers.iter().map(|h| h.as_ref()));
-        children.extend(self.definitions.iter().map(|d| d.as_node()));
+        children.extend(self.headers.iter().map(|h| h.as_ref().deref()));
+        children.extend(self.definitions.iter().map(|d| d.as_ref().deref()));
         children
     }
 }
@@ -423,6 +532,9 @@ impl Node for FieldNode {
 
     fn children(&self) -> Vec<&dyn Node> {
         let mut children = Vec::new();
+        if let Some(field_id) = &self.field_id {
+            children.push(field_id as &dyn Node);
+        }
         children.push(self.field_type.as_ref());
         children.push(&self.identifier as &dyn Node);
         if let Some(default_value) = &self.default_value {
@@ -432,6 +544,20 @@ impl Node for FieldNode {
             children.push(ext as &dyn Node);
         }
         children
+    }
+}
+
+impl Node for FieldIdNode {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn range(&self) -> Range {
+        self.range.clone()
+    }
+
+    fn children(&self) -> Vec<&dyn Node> {
+        Vec::new()
     }
 }
 
@@ -523,13 +649,3 @@ impl Node for ExtNode {
         Vec::new()
     }
 }
-
-impl_definition_node!(
-    ConstNode,
-    TypedefNode,
-    EnumNode,
-    StructNode,
-    UnionNode,
-    ExceptionNode,
-    ServiceNode
-);

@@ -6,7 +6,7 @@ macro_rules! parse_header {
             $(
                 TokenKind::$kind => {
                     if let Some(node) = $self.$parse_fn() {
-                        $headers.push(Box::new(node));
+                        $headers.push(Rc::new(HeaderNode::$kind(node)));
                     } else {
                         $self.recover_to_next_line();
                     }
@@ -27,7 +27,7 @@ macro_rules! parse_definition {
             $(
                 TokenKind::$kind => {
                     if let Some(node) = $self.$parse_fn() {
-                        $definitions.push(Rc::new(node));
+                        $definitions.push(Rc::new(DefinitionNode::$kind(node)));
                     } else {
                         $self.recover_to_next_definition();
                     }
@@ -116,27 +116,5 @@ macro_rules! break_opt_token_or_eof {
             $self.add_error("Unexpected end of file".to_string(), next_token.range());
             break;
         }
-    };
-}
-
-/// Implements the DefinitionNode trait for the given types.
-#[macro_export]
-macro_rules! impl_definition_node {
-    ($($t:ty),*) => {
-        $(
-            impl DefinitionNode for $t {
-                fn name(&self) -> &str {
-                    &self.identifier.name
-                }
-
-                fn as_node(&self) -> &dyn Node {
-                    self
-                }
-
-                fn identifier(&self) -> &IdentifierNode {
-                    &self.identifier
-                }
-            }
-        )*
     };
 }

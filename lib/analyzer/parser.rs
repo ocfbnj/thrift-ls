@@ -3,10 +3,10 @@ use std::rc::Rc;
 use crate::{
     analyzer::{
         ast::{
-            BaseTypeNode, ConstNode, ConstValueNode, CppIncludeNode, DocumentNode, EnumNode,
-            EnumValueNode, ExceptionNode, FieldNode, FunctionNode, IdentifierNode, IncludeNode,
-            ListTypeNode, MapTypeNode, NamespaceNode, Node, ServiceNode, SetTypeNode, StructNode,
-            TypedefNode, UnionNode,
+            BaseTypeNode, ConstNode, ConstValueNode, CppIncludeNode, DefinitionNode, DocumentNode,
+            EnumNode, EnumValueNode, ExceptionNode, ExtNode, FieldIdNode, FieldNode, FunctionNode,
+            HeaderNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode, NamespaceNode,
+            Node, ServiceNode, SetTypeNode, StructNode, TypedefNode, UnionNode,
         },
         base::{Error, Range},
         scanner::Scanner,
@@ -15,8 +15,6 @@ use crate::{
     break_opt_token_or_eof, expect, expect_token, extract_token_value, opt_list_separator,
     parse_definition, parse_header,
 };
-
-use super::ast::{DefinitionNode, ExtNode};
 
 /// Parser for a single file.
 pub struct Parser<'a> {
@@ -97,9 +95,9 @@ impl<'a> Parser<'a> {
 
 // parse headers
 impl<'a> Parser<'a> {
-    fn parse_headers(&mut self) -> Vec<Box<dyn Node>> {
+    fn parse_headers(&mut self) -> Vec<Rc<HeaderNode>> {
         // Headers ::= ( Include | CppInclude | Namespace )*
-        let mut headers: Vec<Box<dyn Node>> = Vec::new();
+        let mut headers: Vec<Rc<HeaderNode>> = Vec::new();
 
         loop {
             parse_header!(
@@ -181,10 +179,10 @@ impl<'a> Parser<'a> {
 
 // parse definitions
 impl<'a> Parser<'a> {
-    fn parse_definitions(&mut self) -> Vec<Rc<dyn DefinitionNode>> {
+    fn parse_definitions(&mut self) -> Vec<Rc<DefinitionNode>> {
         // Definitions ::= ( Const | Typedef | Enum | Struct | Union | Exception | Service )*
 
-        let mut definitions: Vec<Rc<dyn DefinitionNode>> = Vec::new();
+        let mut definitions: Vec<Rc<DefinitionNode>> = Vec::new();
 
         loop {
             parse_definition!(
@@ -552,8 +550,11 @@ impl<'a> Parser<'a> {
 
         let next_token = self.peek_next_token();
         match next_token.kind {
-            TokenKind::IntConstant(id) => {
-                field_id = Some(id.parse().unwrap_or_default());
+            TokenKind::IntConstant(ref id) => {
+                field_id = Some(FieldIdNode {
+                    range: next_token.range(),
+                    id: id.parse().unwrap_or_default(),
+                });
                 self.eat_next_token();
                 expect_token!(self, Colon, "':'");
             }

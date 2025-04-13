@@ -16,14 +16,11 @@ use std::{
     rc::Rc,
 };
 
-use ast::{ConstNode, TypedefNode};
+use ast::{DefinitionNode, FieldNode, FunctionNode, HeaderNode};
 use base::{Location, Position};
 
 use crate::analyzer::{
-    ast::{
-        DocumentNode, ExceptionNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode, Node,
-        ServiceNode, SetTypeNode, StructNode, UnionNode,
-    },
+    ast::{DocumentNode, IdentifierNode, ListTypeNode, MapTypeNode, Node, SetTypeNode},
     base::Error,
     parser::Parser,
     symbol::SymbolTable,
@@ -33,7 +30,7 @@ use crate::analyzer::{
 pub struct Analyzer {
     documents: HashMap<String, Vec<char>>,
 
-    document_nodes: HashMap<String, DocumentNode>,
+    document_nodes: HashMap<String, Rc<DocumentNode>>,
     symbol_tables: HashMap<String, Rc<RefCell<SymbolTable>>>,
 
     errors: HashMap<String, Vec<Error>>,
@@ -117,16 +114,27 @@ impl Analyzer {
 
     /// Get the definition at a specific position.
     pub fn definition(&self, path: &str, pos: Position) -> Option<Location> {
-        let document_node = self.document_nodes.get(path)?;
+        let document_node = self.document_nodes.get(path)?.as_ref();
         let identifier = self.find_identifier(document_node, pos)?;
         let symbol_table = self.symbol_tables.get(path)?;
-        symbol_table
+        let (new_path, def, header) = symbol_table
             .borrow()
-            .find_definition_of_identifier_type(identifier)
-            .map(|(path, definition)| Location {
-                path,
-                range: definition.identifier().range(),
-            })
+            .find_definition_of_identifier_type(identifier)?;
+
+        if identifier.position_in_namespace(pos) {
+            if let Some(include) = header {
+                return Some(Location {
+                    path: path.to_string(),
+                    range: include.range(),
+                });
+            }
+            return None;
+        }
+
+        Some(Location {
+            path: new_path,
+            range: def.identifier().range(),
+        })
     }
 
     /// Get the types for completion.
@@ -185,7 +193,7 @@ impl Analyzer {
         self.semantic_tokens.remove(path);
 
         self.parse_document(path, Rc::new(RefCell::new(HashSet::new())), None);
-        self.type_checking(path);
+        self.static_check(path);
         self.generate_semantic_tokens(path);
     }
 
@@ -194,7 +202,7 @@ impl Analyzer {
         &mut self,
         path: &str,
         visited: Rc<RefCell<HashSet<String>>>,
-        source: Option<(&str, &IncludeNode)>,
+        source: Option<(&str, &Rc<HeaderNode>)>,
     ) -> bool {
         // check for circular dependencies
         if visited.borrow().contains(path) {
@@ -256,12 +264,11 @@ impl Analyzer {
         // track file dependencies
         let mut dependencies = Vec::new();
         for header in &document_node.headers {
-            let header = header.as_ref().as_any();
-            if let Some(include) = header.downcast_ref::<IncludeNode>() {
+            if let HeaderNode::Include(include) = header.as_ref() {
                 if let Some(parent) = path_parent(path) {
                     dependencies.push((
                         parent.join(&include.literal).to_string_lossy().to_string(),
-                        include,
+                        header.clone(),
                     ));
                 }
             }
@@ -274,8 +281,8 @@ impl Analyzer {
         )));
 
         // recursively parse dependencies
-        for (dep_path, include_node) in dependencies.iter() {
-            let res = self.parse_document(dep_path, visited.clone(), Some((path, include_node)));
+        for (dep_path, header) in dependencies.iter() {
+            let res = self.parse_document(dep_path, visited.clone(), Some((path, header)));
             visited.borrow_mut().remove(dep_path.as_str());
             if !res {
                 continue;
@@ -283,33 +290,113 @@ impl Analyzer {
 
             // add dependency to current symbol table
             if let Some(dep_table) = self.symbol_tables.get(dep_path) {
-                symbol_table
-                    .borrow_mut()
-                    .add_dependency(dep_path, dep_table.clone());
+                symbol_table.borrow_mut().add_dependency(
+                    dep_path,
+                    header.clone(),
+                    dep_table.clone(),
+                );
             }
         }
 
         // store document
         self.symbol_tables.insert(path.to_string(), symbol_table);
-        self.document_nodes.insert(path.to_string(), document_node);
+        self.document_nodes
+            .insert(path.to_string(), Rc::new(document_node));
 
         true
     }
 }
 
-/// Type checking
+/// Static check
 impl Analyzer {
-    fn type_checking(&mut self, path: &str) {
-        if let Some(document_node) = self.document_nodes.get(path) {
-            if let Some(symbol_table) = self.symbol_tables.get_mut(path) {
-                symbol_table
-                    .borrow_mut()
-                    .check_document_types(document_node);
+    fn static_check(&mut self, path: &str) {
+        let document_node = match self.document_nodes.get(path) {
+            Some(document_node) => document_node.clone(),
+            None => return,
+        };
+        let symbol_table = match self.symbol_tables.get_mut(path) {
+            Some(symbol_table) => symbol_table.clone(),
+            None => return,
+        };
 
-                self.errors
-                    .entry(path.to_string())
-                    .or_default()
-                    .extend(symbol_table.borrow().errors().iter().map(|e| e.clone()));
+        // type check
+        symbol_table
+            .borrow_mut()
+            .check_document_types(document_node.as_ref());
+        self.errors
+            .entry(path.to_string())
+            .or_default()
+            .extend(symbol_table.borrow().errors().iter().map(|e| e.clone()));
+
+        // field check
+        self.document_check(path, document_node.as_ref());
+    }
+
+    fn document_check(&mut self, path: &str, document_node: &DocumentNode) {
+        for definition in &document_node.definitions {
+            match definition.as_ref() {
+                DefinitionNode::Struct(struct_node) => {
+                    self.fields_check(path, &struct_node.fields);
+                }
+                DefinitionNode::Union(union_node) => {
+                    self.fields_check(path, &union_node.fields);
+                }
+                DefinitionNode::Exception(exception_node) => {
+                    self.fields_check(path, &exception_node.fields);
+                }
+                DefinitionNode::Service(service_node) => {
+                    self.functions_check(path, &service_node.functions);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn fields_check(&mut self, path: &str, fields: &[FieldNode]) {
+        let mut field_ids = HashSet::new();
+        let mut field_identifiers = HashSet::new();
+
+        for field in fields {
+            if let Some(field_id) = &field.field_id {
+                if field_ids.contains(&field_id.id) {
+                    let error = Error {
+                        range: field_id.range.clone(),
+                        message: format!("Duplicate field ID: {}", field_id.id),
+                    };
+                    self.errors.entry(path.to_string()).or_default().push(error);
+                } else {
+                    field_ids.insert(field_id.id);
+                }
+            }
+
+            let identifier_name = &field.identifier.name;
+            if field_identifiers.contains(identifier_name) {
+                let error = Error {
+                    range: field.identifier.range.clone(),
+                    message: format!("Duplicate field identifier: {}", identifier_name),
+                };
+                self.errors.entry(path.to_string()).or_default().push(error);
+            } else {
+                field_identifiers.insert(identifier_name.clone());
+            }
+        }
+    }
+
+    fn functions_check(&mut self, path: &str, functions: &[FunctionNode]) {
+        let mut function_identifiers = HashSet::new();
+
+        for function in functions {
+            self.fields_check(path, &function.fields);
+
+            let identifier_name = &function.identifier.name;
+            if function_identifiers.contains(identifier_name) {
+                let error = Error {
+                    range: function.identifier.range.clone(),
+                    message: format!("Duplicate function identifier: {}", identifier_name),
+                };
+                self.errors.entry(path.to_string()).or_default().push(error);
+            } else {
+                function_identifiers.insert(identifier_name.clone());
             }
         }
     }
@@ -340,48 +427,70 @@ impl Analyzer {
 
         if let Some(document_node) = self.document_nodes.get(path) {
             for definition in &document_node.definitions {
-                let definition = definition.as_ref().as_any();
-
-                if let Some(struct_node) = definition.downcast_ref::<StructNode>() {
-                    for field in &struct_node.fields {
-                        self.collect_field_type_identifiers(&field.field_type, &mut result, path);
-                    }
-                } else if let Some(union_node) = definition.downcast_ref::<UnionNode>() {
-                    for field in &union_node.fields {
-                        self.collect_field_type_identifiers(&field.field_type, &mut result, path);
-                    }
-                } else if let Some(exception_node) = definition.downcast_ref::<ExceptionNode>() {
-                    for field in &exception_node.fields {
-                        self.collect_field_type_identifiers(&field.field_type, &mut result, path);
-                    }
-                } else if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
-                    for function in &service_node.functions {
-                        self.collect_field_type_identifiers(
-                            &function.function_type,
-                            &mut result,
-                            path,
-                        );
-                        for field in &function.fields {
+                match definition.as_ref() {
+                    DefinitionNode::Struct(struct_node) => {
+                        for field in &struct_node.fields {
                             self.collect_field_type_identifiers(
                                 &field.field_type,
                                 &mut result,
                                 path,
                             );
                         }
-                        if let Some(throws) = &function.throws {
-                            for throw in throws {
+                    }
+                    DefinitionNode::Union(union_node) => {
+                        for field in &union_node.fields {
+                            self.collect_field_type_identifiers(
+                                &field.field_type,
+                                &mut result,
+                                path,
+                            );
+                        }
+                    }
+                    DefinitionNode::Exception(exception_node) => {
+                        for field in &exception_node.fields {
+                            self.collect_field_type_identifiers(
+                                &field.field_type,
+                                &mut result,
+                                path,
+                            );
+                        }
+                    }
+                    DefinitionNode::Service(service_node) => {
+                        for function in &service_node.functions {
+                            self.collect_field_type_identifiers(
+                                &function.function_type,
+                                &mut result,
+                                path,
+                            );
+                            for field in &function.fields {
                                 self.collect_field_type_identifiers(
-                                    &throw.field_type,
+                                    &field.field_type,
                                     &mut result,
                                     path,
                                 );
                             }
+                            if let Some(throws) = &function.throws {
+                                for throw in throws {
+                                    self.collect_field_type_identifiers(
+                                        &throw.field_type,
+                                        &mut result,
+                                        path,
+                                    );
+                                }
+                            }
                         }
                     }
-                } else if let Some(const_node) = definition.downcast_ref::<ConstNode>() {
-                    self.collect_field_type_identifiers(&const_node.field_type, &mut result, path);
-                } else if let Some(typedef_node) = definition.downcast_ref::<TypedefNode>() {
-                    result.push(&typedef_node.identifier);
+                    DefinitionNode::Const(const_node) => {
+                        self.collect_field_type_identifiers(
+                            &const_node.field_type,
+                            &mut result,
+                            path,
+                        );
+                    }
+                    DefinitionNode::Typedef(typedef_node) => {
+                        result.push(&typedef_node.identifier);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -454,12 +563,13 @@ impl Analyzer {
 
         if let Some(document_node) = self.document_nodes.get(path) {
             for definition in &document_node.definitions {
-                let definition = definition.as_ref().as_any();
-
-                if let Some(service_node) = definition.downcast_ref::<ServiceNode>() {
-                    for function in &service_node.functions {
-                        result.push(&function.identifier);
+                match definition.as_ref() {
+                    DefinitionNode::Service(service_node) => {
+                        for function in &service_node.functions {
+                            result.push(&function.identifier);
+                        }
                     }
+                    _ => {}
                 }
             }
         }
