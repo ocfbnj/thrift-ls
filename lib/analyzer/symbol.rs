@@ -154,7 +154,7 @@ impl SymbolTable {
         if self.types.contains_key(definition.name()) {
             self.errors.push(Error {
                 range: definition.range(),
-                message: format!("Duplicate definition with name: {}", definition.name()),
+                message: format!("Duplicate definition: {}", definition.name()),
             });
             return;
         }
