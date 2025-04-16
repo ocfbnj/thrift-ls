@@ -1,14 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
 
 use crate::analyzer::{
-    ast::{
-        BaseTypeNode, DefinitionNode, DocumentNode, IdentifierNode, ListTypeNode, MapTypeNode,
-        Node, SetTypeNode,
-    },
+    ast::{DefinitionNode, DocumentNode, FieldTypeNode, HeaderNode, IdentifierNode, Node},
     base::Error,
 };
-
-use super::ast::HeaderNode;
 
 /// Symbol table for a single file.
 #[derive(Debug)]
@@ -16,9 +11,9 @@ pub struct SymbolTable {
     path: String,
     types: HashMap<String, Rc<DefinitionNode>>,
     include_nodes: HashMap<String, Rc<HeaderNode>>,
-    includes: HashMap<String, Rc<RefCell<SymbolTable>>>,
+    includes: HashMap<String, Rc<SymbolTable>>,
     namespace_to_path: HashMap<String, String>,
-    errors: Vec<Error>,
+    errors: RefCell<Vec<Error>>,
 }
 
 impl SymbolTable {
@@ -30,7 +25,7 @@ impl SymbolTable {
             includes: HashMap::new(),
             include_nodes: HashMap::new(),
             namespace_to_path: HashMap::new(),
-            errors: Vec::new(),
+            errors: RefCell::new(Vec::new()),
         }
     }
 
@@ -49,7 +44,7 @@ impl SymbolTable {
         &mut self,
         path: &str,
         node: Rc<HeaderNode>,
-        dependency: Rc<RefCell<SymbolTable>>,
+        dependency: Rc<SymbolTable>,
     ) {
         let namespace = Path::new(path)
             .file_stem()
@@ -71,45 +66,54 @@ impl SymbolTable {
     }
 
     /// Get the includes in the symbol table.
-    pub fn includes(&self) -> &HashMap<String, Rc<RefCell<SymbolTable>>> {
+    pub fn includes(&self) -> &HashMap<String, Rc<SymbolTable>> {
         &self.includes
     }
 
     /// Get the errors.
-    pub fn errors(&self) -> &[Error] {
-        &self.errors
+    pub fn errors(&self) -> Vec<Error> {
+        self.errors.borrow().clone()
     }
 
     /// Check the types of the document.
-    pub fn check_document_types(&mut self, document: &DocumentNode) {
+    pub fn check_document_types(&self, document: &DocumentNode) {
         for definition in &document.definitions {
             match definition.as_ref() {
+                DefinitionNode::Const(const_def) => {
+                    self.check_field_type(&const_def.field_type);
+                }
                 DefinitionNode::Struct(struct_def) => {
                     for field in &struct_def.fields {
-                        self.check_field_type(&*field.field_type);
+                        self.check_field_type(&field.field_type);
                     }
                 }
                 DefinitionNode::Union(union_def) => {
                     for field in &union_def.fields {
-                        self.check_field_type(&*field.field_type);
+                        self.check_field_type(&field.field_type);
                     }
                 }
                 DefinitionNode::Exception(exception_def) => {
                     for field in &exception_def.fields {
-                        self.check_field_type(&*field.field_type);
+                        self.check_field_type(&field.field_type);
                     }
                 }
                 DefinitionNode::Service(service_def) => {
+                    if let Some(extends) = &service_def.extends {
+                        self.check_identifier_type(extends);
+                    }
+
                     for function in &service_def.functions {
-                        self.check_field_type(&*function.function_type);
+                        if let Some(function_type) = &function.function_type {
+                            self.check_field_type(function_type);
+                        }
 
                         for field in &function.fields {
-                            self.check_field_type(&*field.field_type);
+                            self.check_field_type(&field.field_type);
                         }
 
                         if let Some(throws) = &function.throws {
                             for throw in throws {
-                                self.check_field_type(&*throw.field_type);
+                                self.check_field_type(&throw.field_type);
                             }
                         }
                     }
@@ -127,7 +131,7 @@ impl SymbolTable {
         // check if the identifier contains a namespace (file name)
         if let (Some(namespace), identifier) = identifier.split_by_first_dot() {
             // look up in included files
-            let included_table = self.includes.get(&namespace.name)?.borrow();
+            let included_table = self.includes.get(&namespace.name)?;
             let (path, def, _) = included_table.find_definition_of_identifier_type(&identifier)?;
 
             // get the header node
@@ -146,13 +150,8 @@ impl SymbolTable {
 
 impl SymbolTable {
     fn process_definition(&mut self, definition: &Rc<DefinitionNode>) {
-        // skip const definitions
-        if let DefinitionNode::Const(_) = definition.as_ref() {
-            return;
-        }
-
         if self.types.contains_key(definition.name()) {
-            self.errors.push(Error {
+            self.errors.borrow_mut().push(Error {
                 range: definition.range(),
                 message: format!("Duplicate definition: {}", definition.name()),
             });
@@ -163,30 +162,33 @@ impl SymbolTable {
             .insert(definition.name().to_string(), definition.clone());
     }
 
-    fn check_field_type(&mut self, field_type: &dyn Node) {
-        if let Some(_) = field_type.as_any().downcast_ref::<BaseTypeNode>() {
-            // base types are always valid
-        } else if let Some(identifier) = field_type.as_any().downcast_ref::<IdentifierNode>() {
-            if self
-                .find_definition_of_identifier_type(identifier)
-                .is_none()
-            {
-                self.errors.push(Error {
-                    range: identifier.range(),
-                    message: format!("Undefined type: {}", identifier.name),
-                });
+    fn check_field_type(&self, field_type: &FieldTypeNode) {
+        match field_type {
+            FieldTypeNode::Identifier(identifier) => {
+                self.check_identifier_type(identifier);
             }
-        } else if let Some(list_type) = field_type.as_any().downcast_ref::<ListTypeNode>() {
-            self.check_field_type(&*list_type.type_node);
-        } else if let Some(set_type) = field_type.as_any().downcast_ref::<SetTypeNode>() {
-            self.check_field_type(&*set_type.type_node);
-        } else if let Some(map_type) = field_type.as_any().downcast_ref::<MapTypeNode>() {
-            self.check_field_type(&*map_type.key_type);
-            self.check_field_type(&*map_type.value_type);
-        } else {
-            self.errors.push(Error {
-                range: field_type.range(),
-                message: "Invalid field type".to_string(),
+            FieldTypeNode::BaseType(_) => {
+                // base types are always valid
+            }
+            FieldTypeNode::MapType(map_type) => {
+                self.check_field_type(&*map_type.key_type);
+                self.check_field_type(&*map_type.value_type);
+            }
+            FieldTypeNode::SetType(set_type) => {
+                self.check_field_type(&*set_type.type_node);
+            }
+            FieldTypeNode::ListType(list_type) => {
+                self.check_field_type(&*list_type.type_node);
+            }
+        }
+    }
+
+    fn check_identifier_type(&self, identifier: &IdentifierNode) {
+        let def = self.find_definition_of_identifier_type(identifier);
+        if def.is_none() {
+            self.errors.borrow_mut().push(Error {
+                range: identifier.range(),
+                message: format!("Undefined type: {}", identifier.name),
             });
         }
     }

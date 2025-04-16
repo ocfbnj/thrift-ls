@@ -4,9 +4,9 @@ use crate::{
     analyzer::{
         ast::{
             BaseTypeNode, ConstNode, ConstValueNode, CppIncludeNode, DefinitionNode, DocumentNode,
-            EnumNode, EnumValueNode, ExceptionNode, ExtNode, FieldIdNode, FieldNode, FunctionNode,
-            HeaderNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode, NamespaceNode,
-            Node, ServiceNode, SetTypeNode, StructNode, TypedefNode, UnionNode,
+            EnumNode, EnumValueNode, ExceptionNode, ExtNode, FieldIdNode, FieldNode, FieldTypeNode,
+            FunctionNode, HeaderNode, IdentifierNode, IncludeNode, ListTypeNode, MapTypeNode,
+            NamespaceNode, ServiceNode, SetTypeNode, StructNode, TypedefNode, UnionNode,
         },
         base::{Error, Range},
         scanner::Scanner,
@@ -209,7 +209,7 @@ impl<'a> Parser<'a> {
         let field_type = self.parse_field_type()?;
         let identifier = self.parse_identifier()?;
         expect_token!(self, Assign, "'='");
-        let value = Box::new(self.parse_const_value()?);
+        let value = self.parse_const_value()?;
         opt_list_separator!(self);
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -222,14 +222,14 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_field_type(&mut self) -> Option<Box<dyn Node>> {
+    fn parse_field_type(&mut self) -> Option<FieldTypeNode> {
         // FieldType ::= Identifier | DefinitionType
 
         let next_token = self.peek_next_token();
         match next_token.kind {
             TokenKind::Identifier(ref identifier) => {
                 self.eat_next_token();
-                return Some(Box::new(IdentifierNode {
+                return Some(FieldTypeNode::Identifier(IdentifierNode {
                     range: next_token.range(),
                     name: identifier.clone(),
                 }));
@@ -240,14 +240,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_definition_type(&mut self) -> Option<Box<dyn Node>> {
+    fn parse_definition_type(&mut self) -> Option<FieldTypeNode> {
         // DefinitionType ::= BaseType | ContainerType
 
         let next_token = self.peek_next_token();
         match next_token.kind {
             TokenKind::BaseType(ref base_type) => {
                 self.eat_next_token();
-                return Some(Box::new(BaseTypeNode {
+                return Some(FieldTypeNode::BaseType(BaseTypeNode {
                     range: next_token.range(),
                     name: base_type.clone(),
                 }));
@@ -258,14 +258,14 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_container_type(&mut self) -> Option<Box<dyn Node>> {
+    fn parse_container_type(&mut self) -> Option<FieldTypeNode> {
         // ContainerType ::= MapType | SetType | ListType
 
         let next_token = self.peek_next_token();
         match next_token.kind {
-            TokenKind::Map => self.parse_map_type().map(|x| Box::new(x) as Box<dyn Node>),
-            TokenKind::Set => self.parse_set_type().map(|x| Box::new(x) as Box<dyn Node>),
-            TokenKind::List => self.parse_list_type().map(|x| Box::new(x) as Box<dyn Node>),
+            TokenKind::Map => self.parse_map_type().map(|x| FieldTypeNode::MapType(x)),
+            TokenKind::Set => self.parse_set_type().map(|x| FieldTypeNode::SetType(x)),
+            TokenKind::List => self.parse_list_type().map(|x| FieldTypeNode::ListType(x)),
             _ => {
                 self.add_error(
                     format!("Expected map, set, or list, but got {}", next_token.kind),
@@ -296,9 +296,9 @@ impl<'a> Parser<'a> {
         let cpp_type = self.opt_parse_cpp_type();
 
         expect_token!(self, Less, "'<'");
-        let key_type = self.parse_field_type()?;
+        let key_type = Box::new(self.parse_field_type()?);
         expect!(self, TokenKind::ListSeparator(','), "','");
-        let value_type = self.parse_field_type()?;
+        let value_type = Box::new(self.parse_field_type()?);
         expect_token!(self, Greater, "'>'");
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -319,7 +319,7 @@ impl<'a> Parser<'a> {
         let cpp_type = self.opt_parse_cpp_type();
 
         expect!(self, TokenKind::Less, "'<'");
-        let type_node = self.parse_field_type()?;
+        let type_node = Box::new(self.parse_field_type()?);
         expect_token!(self, Greater, "'>'");
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -339,7 +339,7 @@ impl<'a> Parser<'a> {
         let cpp_type = self.opt_parse_cpp_type();
 
         expect!(self, TokenKind::Less, "'<'");
-        let type_node = self.parse_field_type()?;
+        let type_node = Box::new(self.parse_field_type()?);
         expect_token!(self, Greater, "'>'");
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -677,13 +677,7 @@ impl<'a> Parser<'a> {
         let next_token = self.peek_next_token();
         if next_token.kind == TokenKind::Extends {
             self.eat_next_token();
-            let extends_token = self.next_token();
-            extends = Some(extract_token_value!(
-                self,
-                extends_token,
-                Identifier,
-                "identifier"
-            ));
+            extends = self.parse_identifier();
         }
 
         expect_token!(self, Lbrace, "'{'");
@@ -718,7 +712,7 @@ impl<'a> Parser<'a> {
             self.eat_next_token();
         }
 
-        let return_type = self.parse_function_type()?;
+        let function_type = self.parse_function_type();
         let identifier = self.parse_identifier()?;
         expect_token!(self, Lparen, "'('");
 
@@ -741,7 +735,7 @@ impl<'a> Parser<'a> {
         Some(FunctionNode {
             range,
             is_oneway,
-            function_type: return_type,
+            function_type,
             identifier,
             fields,
             throws,
@@ -749,16 +743,13 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_function_type(&mut self) -> Option<Box<dyn Node>> {
+    fn parse_function_type(&mut self) -> Option<FieldTypeNode> {
         // FunctionType ::= FieldType | 'void'
 
         let next_token = self.peek_next_token();
         if next_token.kind == TokenKind::Void {
             self.eat_next_token();
-            return Some(Box::new(BaseTypeNode {
-                name: "void".to_string(),
-                range: next_token.range(),
-            }));
+            return None;
         }
         self.parse_field_type()
     }

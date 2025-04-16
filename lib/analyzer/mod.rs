@@ -9,18 +9,17 @@ pub mod symbol;
 pub mod token;
 
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     fs, io,
     path::{Path, PathBuf},
     rc::Rc,
 };
 
-use ast::{DefinitionNode, FieldNode, FunctionNode, HeaderNode};
+use ast::{DefinitionNode, FieldNode, FieldTypeNode, FunctionNode, HeaderNode};
 use base::{Location, Position};
 
 use crate::analyzer::{
-    ast::{DocumentNode, IdentifierNode, ListTypeNode, MapTypeNode, Node, SetTypeNode},
+    ast::{DocumentNode, IdentifierNode, Node},
     base::Error,
     parser::Parser,
     symbol::SymbolTable,
@@ -31,7 +30,7 @@ pub struct Analyzer {
     documents: HashMap<String, Vec<char>>,
 
     document_nodes: HashMap<String, Rc<DocumentNode>>,
-    symbol_tables: HashMap<String, Rc<RefCell<SymbolTable>>>,
+    symbol_tables: HashMap<String, Rc<SymbolTable>>,
 
     errors: HashMap<String, Vec<Error>>,
     semantic_tokens: HashMap<String, Vec<u32>>,
@@ -117,9 +116,8 @@ impl Analyzer {
         let document_node = self.document_nodes.get(path)?.as_ref();
         let identifier = self.find_identifier(document_node, pos)?;
         let symbol_table = self.symbol_tables.get(path)?;
-        let (new_path, def, header) = symbol_table
-            .borrow()
-            .find_definition_of_identifier_type(identifier)?;
+        let (new_path, def, header) =
+            symbol_table.find_definition_of_identifier_type(identifier)?;
 
         if identifier.position_in_namespace(pos) {
             if let Some(include) = header {
@@ -157,14 +155,14 @@ impl Analyzer {
                 Some(word) => word,
                 None => return vec!["".to_string()],
             };
-            let table = match symbol_table.borrow().includes().get(&word) {
+            let table = match symbol_table.includes().get(&word) {
                 Some(table) => table.clone(),
                 None => return vec!["".to_string()],
             };
             symbol_table = table;
         }
 
-        return symbol_table.borrow().types().keys().cloned().collect();
+        return symbol_table.types().keys().cloned().collect();
     }
 
     /// Get the includes for completion.
@@ -174,7 +172,7 @@ impl Analyzer {
             None => return vec![],
         };
 
-        symbol_table.borrow().includes().keys().cloned().collect()
+        symbol_table.includes().keys().cloned().collect()
     }
 
     /// Get the keywords for completion.
@@ -192,7 +190,8 @@ impl Analyzer {
         self.errors.remove(path);
         self.semantic_tokens.remove(path);
 
-        self.parse_document(path, Rc::new(RefCell::new(HashSet::new())), None);
+        let mut visited = HashSet::new();
+        self.parse_document(path, &mut visited, None);
         self.static_check(path);
         self.generate_semantic_tokens(path);
     }
@@ -201,11 +200,11 @@ impl Analyzer {
     fn parse_document(
         &mut self,
         path: &str,
-        visited: Rc<RefCell<HashSet<String>>>,
+        visited: &mut HashSet<String>,
         source: Option<(&str, &Rc<HeaderNode>)>,
     ) -> bool {
         // check for circular dependencies
-        if visited.borrow().contains(path) {
+        if visited.contains(path) {
             if let Some((source_path, node)) = source {
                 let error = Error {
                     range: node.range(),
@@ -221,7 +220,7 @@ impl Analyzer {
         }
 
         // mark file as being processed
-        visited.borrow_mut().insert(path.to_string());
+        visited.insert(path.to_string());
 
         // if file is already parsed, return
         if self.document_nodes.contains_key(path) {
@@ -275,31 +274,25 @@ impl Analyzer {
         }
 
         // build symbol table
-        let symbol_table = Rc::new(RefCell::new(SymbolTable::new_from_ast(
-            path,
-            &document_node,
-        )));
+        let mut symbol_table = SymbolTable::new_from_ast(path, &document_node);
 
         // recursively parse dependencies
         for (dep_path, header) in dependencies.iter() {
-            let res = self.parse_document(dep_path, visited.clone(), Some((path, header)));
-            visited.borrow_mut().remove(dep_path.as_str());
+            let res = self.parse_document(dep_path, visited, Some((path, header)));
+            visited.remove(dep_path.as_str());
             if !res {
                 continue;
             }
 
             // add dependency to current symbol table
             if let Some(dep_table) = self.symbol_tables.get(dep_path) {
-                symbol_table.borrow_mut().add_dependency(
-                    dep_path,
-                    header.clone(),
-                    dep_table.clone(),
-                );
+                symbol_table.add_dependency(dep_path, header.clone(), dep_table.clone());
             }
         }
 
         // store document
-        self.symbol_tables.insert(path.to_string(), symbol_table);
+        self.symbol_tables
+            .insert(path.to_string(), Rc::new(symbol_table));
         self.document_nodes
             .insert(path.to_string(), Rc::new(document_node));
 
@@ -320,13 +313,11 @@ impl Analyzer {
         };
 
         // type check
-        symbol_table
-            .borrow_mut()
-            .check_document_types(document_node.as_ref());
+        symbol_table.check_document_types(document_node.as_ref());
         self.errors
             .entry(path.to_string())
             .or_default()
-            .extend(symbol_table.borrow().errors().iter().map(|e| e.clone()));
+            .extend(symbol_table.errors().into_iter().map(|e| e));
 
         // field check
         self.document_check(path, document_node.as_ref());
@@ -428,68 +419,53 @@ impl Analyzer {
         if let Some(document_node) = self.document_nodes.get(path) {
             for definition in &document_node.definitions {
                 match definition.as_ref() {
+                    DefinitionNode::Const(const_node) => {
+                        result.extend(self.collect_field_type_identifiers(&const_node.field_type));
+                    }
+                    DefinitionNode::Typedef(typedef_node) => {
+                        result.extend(
+                            self.collect_field_type_identifiers(&typedef_node.definition_type),
+                        );
+                        result.push(&typedef_node.identifier);
+                    }
                     DefinitionNode::Struct(struct_node) => {
                         for field in &struct_node.fields {
-                            self.collect_field_type_identifiers(
-                                &field.field_type,
-                                &mut result,
-                                path,
-                            );
+                            result.extend(self.collect_field_type_identifiers(&field.field_type));
                         }
                     }
                     DefinitionNode::Union(union_node) => {
                         for field in &union_node.fields {
-                            self.collect_field_type_identifiers(
-                                &field.field_type,
-                                &mut result,
-                                path,
-                            );
+                            result.extend(self.collect_field_type_identifiers(&field.field_type));
                         }
                     }
                     DefinitionNode::Exception(exception_node) => {
                         for field in &exception_node.fields {
-                            self.collect_field_type_identifiers(
-                                &field.field_type,
-                                &mut result,
-                                path,
-                            );
+                            result.extend(self.collect_field_type_identifiers(&field.field_type));
                         }
                     }
                     DefinitionNode::Service(service_node) => {
+                        if let Some(extends) = &service_node.extends {
+                            result.push(extends);
+                        }
+
                         for function in &service_node.functions {
-                            self.collect_field_type_identifiers(
-                                &function.function_type,
-                                &mut result,
-                                path,
-                            );
+                            if let Some(function_type) = &function.function_type {
+                                result.extend(self.collect_field_type_identifiers(function_type));
+                            }
                             for field in &function.fields {
-                                self.collect_field_type_identifiers(
-                                    &field.field_type,
-                                    &mut result,
-                                    path,
-                                );
+                                result
+                                    .extend(self.collect_field_type_identifiers(&field.field_type));
                             }
                             if let Some(throws) = &function.throws {
                                 for throw in throws {
-                                    self.collect_field_type_identifiers(
-                                        &throw.field_type,
-                                        &mut result,
-                                        path,
+                                    result.extend(
+                                        self.collect_field_type_identifiers(&throw.field_type),
                                     );
                                 }
                             }
                         }
                     }
-                    DefinitionNode::Const(const_node) => {
-                        self.collect_field_type_identifiers(
-                            &const_node.field_type,
-                            &mut result,
-                            path,
-                        );
-                    }
-                    DefinitionNode::Typedef(typedef_node) => {
-                        result.push(&typedef_node.identifier);
-                    }
+
                     _ => {}
                 }
             }
@@ -501,20 +477,22 @@ impl Analyzer {
     /// Collect all IdentifierNode instances used as field types in the document nodes.
     fn collect_field_type_identifiers<'a>(
         &'a self,
-        field_type: &'a Box<dyn Node>,
-        result: &mut Vec<&'a IdentifierNode>,
-        path: &str,
-    ) {
-        let field_type = field_type.as_ref().as_any();
-        if let Some(identifier) = field_type.downcast_ref::<IdentifierNode>() {
-            result.push(identifier);
-        } else if let Some(list_type) = field_type.downcast_ref::<ListTypeNode>() {
-            self.collect_field_type_identifiers(&list_type.type_node, result, path);
-        } else if let Some(set_type) = field_type.downcast_ref::<SetTypeNode>() {
-            self.collect_field_type_identifiers(&set_type.type_node, result, path);
-        } else if let Some(map_type) = field_type.downcast_ref::<MapTypeNode>() {
-            self.collect_field_type_identifiers(&map_type.key_type, result, path);
-            self.collect_field_type_identifiers(&map_type.value_type, result, path);
+        field_type: &'a FieldTypeNode,
+    ) -> Vec<&'a IdentifierNode> {
+        match field_type {
+            FieldTypeNode::Identifier(identifier) => vec![identifier],
+            FieldTypeNode::BaseType(_) => vec![],
+            FieldTypeNode::MapType(map_type) => {
+                let mut result = self.collect_field_type_identifiers(&map_type.key_type);
+                result.extend(self.collect_field_type_identifiers(&map_type.value_type));
+                result
+            }
+            FieldTypeNode::SetType(set_type) => {
+                self.collect_field_type_identifiers(&set_type.type_node)
+            }
+            FieldTypeNode::ListType(list_type) => {
+                self.collect_field_type_identifiers(&list_type.type_node)
+            }
         }
     }
 

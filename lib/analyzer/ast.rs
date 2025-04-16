@@ -1,8 +1,6 @@
 use std::{any::Any, fmt::Debug, ops::Deref, rc::Rc};
 
-use crate::analyzer::base::Range;
-
-use super::base::Position;
+use crate::analyzer::base::{Position, Range};
 
 /// A trait for all AST nodes.
 pub trait Node: Debug + Any {
@@ -76,6 +74,30 @@ impl DefinitionNode {
             DefinitionNode::Union(node) => &node.identifier,
             DefinitionNode::Exception(node) => &node.identifier,
             DefinitionNode::Service(node) => &node.identifier,
+        }
+    }
+}
+
+/// An enum representing all possible field types.
+#[derive(Debug)]
+pub enum FieldTypeNode {
+    Identifier(IdentifierNode),
+    BaseType(BaseTypeNode),
+    MapType(MapTypeNode),
+    SetType(SetTypeNode),
+    ListType(ListTypeNode),
+}
+
+impl Deref for FieldTypeNode {
+    type Target = dyn Node;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            FieldTypeNode::Identifier(node) => node,
+            FieldTypeNode::BaseType(node) => node,
+            FieldTypeNode::MapType(node) => node,
+            FieldTypeNode::SetType(node) => node,
+            FieldTypeNode::ListType(node) => node,
         }
     }
 }
@@ -161,9 +183,9 @@ impl IdentifierNode {
 #[derive(Debug)]
 pub struct ConstNode {
     pub range: Range,
-    pub field_type: Box<dyn Node>,
+    pub field_type: FieldTypeNode,
     pub identifier: IdentifierNode,
-    pub value: Box<dyn Node>,
+    pub value: ConstValueNode,
 }
 
 #[derive(Debug)]
@@ -176,22 +198,22 @@ pub struct BaseTypeNode {
 pub struct MapTypeNode {
     pub range: Range,
     pub cpp_type: Option<String>,
-    pub key_type: Box<dyn Node>,
-    pub value_type: Box<dyn Node>,
+    pub key_type: Box<FieldTypeNode>,
+    pub value_type: Box<FieldTypeNode>,
 }
 
 #[derive(Debug)]
 pub struct SetTypeNode {
     pub range: Range,
     pub cpp_type: Option<String>,
-    pub type_node: Box<dyn Node>,
+    pub type_node: Box<FieldTypeNode>,
 }
 
 #[derive(Debug)]
 pub struct ListTypeNode {
     pub range: Range,
     pub cpp_type: Option<String>,
-    pub type_node: Box<dyn Node>,
+    pub type_node: Box<FieldTypeNode>,
 }
 
 #[derive(Debug)]
@@ -203,7 +225,7 @@ pub struct ConstValueNode {
 #[derive(Debug)]
 pub struct TypedefNode {
     pub range: Range,
-    pub definition_type: Box<dyn Node>,
+    pub definition_type: FieldTypeNode, // we extended this type
     pub identifier: IdentifierNode,
 }
 
@@ -235,7 +257,7 @@ pub struct FieldNode {
     pub range: Range,
     pub field_id: Option<FieldIdNode>,
     pub field_req: Option<String>,
-    pub field_type: Box<dyn Node>,
+    pub field_type: FieldTypeNode,
     pub identifier: IdentifierNode,
     pub default_value: Option<ConstValueNode>,
     pub ext: Option<ExtNode>,
@@ -265,7 +287,7 @@ pub struct ExceptionNode {
 pub struct ServiceNode {
     pub range: Range,
     pub identifier: IdentifierNode,
-    pub extends: Option<String>,
+    pub extends: Option<IdentifierNode>,
     pub functions: Vec<FunctionNode>,
 }
 
@@ -273,7 +295,7 @@ pub struct ServiceNode {
 pub struct FunctionNode {
     pub range: Range,
     pub is_oneway: bool,
-    pub function_type: Box<dyn Node>,
+    pub function_type: Option<FieldTypeNode>,
     pub identifier: IdentifierNode,
     pub fields: Vec<FieldNode>,
     pub throws: Option<Vec<FieldNode>>,
@@ -375,9 +397,9 @@ impl Node for ConstNode {
 
     fn children(&self) -> Vec<&dyn Node> {
         vec![
-            self.field_type.as_ref(),
+            self.field_type.deref(),
             &self.identifier as &dyn Node,
-            self.value.as_ref(),
+            &self.value as &dyn Node,
         ]
     }
 }
@@ -406,7 +428,10 @@ impl Node for MapTypeNode {
     }
 
     fn children(&self) -> Vec<&dyn Node> {
-        vec![self.key_type.as_ref(), self.value_type.as_ref()]
+        vec![
+            self.key_type.as_ref().deref(),
+            self.value_type.as_ref().deref(),
+        ]
     }
 }
 
@@ -420,7 +445,7 @@ impl Node for SetTypeNode {
     }
 
     fn children(&self) -> Vec<&dyn Node> {
-        vec![self.type_node.as_ref()]
+        vec![self.type_node.as_ref().deref()]
     }
 }
 
@@ -434,7 +459,7 @@ impl Node for ListTypeNode {
     }
 
     fn children(&self) -> Vec<&dyn Node> {
-        vec![self.type_node.as_ref()]
+        vec![self.type_node.as_ref().deref()]
     }
 }
 
@@ -462,7 +487,7 @@ impl Node for TypedefNode {
     }
 
     fn children(&self) -> Vec<&dyn Node> {
-        vec![self.definition_type.as_ref(), &self.identifier as &dyn Node]
+        vec![self.definition_type.deref(), &self.identifier as &dyn Node]
     }
 }
 
@@ -535,7 +560,7 @@ impl Node for FieldNode {
         if let Some(field_id) = &self.field_id {
             children.push(field_id as &dyn Node);
         }
-        children.push(self.field_type.as_ref());
+        children.push(self.field_type.deref());
         children.push(&self.identifier as &dyn Node);
         if let Some(default_value) = &self.default_value {
             children.push(default_value as &dyn Node);
@@ -607,6 +632,9 @@ impl Node for ServiceNode {
     fn children(&self) -> Vec<&dyn Node> {
         let mut children = Vec::new();
         children.push(&self.identifier as &dyn Node);
+        if let Some(extends) = &self.extends {
+            children.push(extends as &dyn Node);
+        }
         children.extend(self.functions.iter().map(|f| f as &dyn Node));
         children
     }
@@ -623,7 +651,9 @@ impl Node for FunctionNode {
 
     fn children(&self) -> Vec<&dyn Node> {
         let mut children = Vec::new();
-        children.push(self.function_type.as_ref());
+        if let Some(function_type) = &self.function_type {
+            children.push(function_type.deref());
+        }
         children.push(&self.identifier as &dyn Node);
         children.extend(self.fields.iter().map(|f| f as &dyn Node));
         if let Some(throws) = &self.throws {
