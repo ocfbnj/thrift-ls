@@ -265,6 +265,7 @@ impl TokenKind {
             "rb" => TokenKind::NamespaceScope(String::from("rb")),
             "st" => TokenKind::NamespaceScope(String::from("st")),
             "xsd" => TokenKind::NamespaceScope(String::from("xsd")),
+            "rs" => TokenKind::NamespaceScope(String::from("rs")),
 
             // base types
             "bool" => TokenKind::BaseType(String::from("bool")),
