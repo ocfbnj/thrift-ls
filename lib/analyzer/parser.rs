@@ -454,7 +454,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_enum(&mut self) -> Option<EnumNode> {
-        // Enum ::= 'enum' Identifier '{' EnumValue* '}'
+        // Enum ::= 'enum' Identifier '{' EnumValue* '}' Ext?
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Enum, "'enum'");
@@ -470,6 +470,7 @@ impl<'a> Parser<'a> {
                 self.recover_to_next_line();
             }
         }
+        let ext = self.opt_parse_ext();
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
@@ -477,6 +478,7 @@ impl<'a> Parser<'a> {
             range,
             identifier,
             values,
+            ext,
         })
     }
 
@@ -613,7 +615,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_union(&mut self) -> Option<UnionNode> {
-        // Union ::= 'union' Identifier '{' Field* '}'
+        // Union ::= 'union' Identifier '{' Field* '}' Ext?
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Union, "'union'");
@@ -629,6 +631,7 @@ impl<'a> Parser<'a> {
                 self.recover_to_next_line();
             }
         }
+        let ext = self.opt_parse_ext();
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
@@ -636,11 +639,12 @@ impl<'a> Parser<'a> {
             range,
             identifier,
             fields,
+            ext,
         })
     }
 
     fn parse_exception(&mut self) -> Option<ExceptionNode> {
-        // Exception ::= 'exception' Identifier '{' Field* '}'
+        // Exception ::= 'exception' Identifier '{' Field* '}' Ext?
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Exception, "'exception'");
@@ -656,6 +660,7 @@ impl<'a> Parser<'a> {
                 self.recover_to_next_line();
             }
         }
+        let ext = self.opt_parse_ext();
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
@@ -663,11 +668,12 @@ impl<'a> Parser<'a> {
             range,
             identifier,
             fields,
+            ext,
         })
     }
 
     fn parse_service(&mut self) -> Option<ServiceNode> {
-        // Service ::= 'service' Identifier ( 'extends' Identifier )? '{' Function* '}'
+        // Service ::= 'service' Identifier ( 'extends' Identifier )? '{' Function* '}' Ext?
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Service, "'service'");
@@ -690,6 +696,7 @@ impl<'a> Parser<'a> {
                 self.recover_to_next_line();
             }
         }
+        let ext = self.opt_parse_ext();
         let end = self.prev_token().unwrap_or_default().range().end;
 
         let range = Range { start, end };
@@ -698,6 +705,7 @@ impl<'a> Parser<'a> {
             identifier,
             extends,
             functions,
+            ext,
         })
     }
 

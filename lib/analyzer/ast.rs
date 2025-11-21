@@ -234,6 +234,7 @@ pub struct EnumNode {
     pub range: Range,
     pub identifier: IdentifierNode,
     pub values: Vec<EnumValueNode>,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug)]
@@ -274,6 +275,7 @@ pub struct UnionNode {
     pub range: Range,
     pub identifier: IdentifierNode,
     pub fields: Vec<FieldNode>,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug)]
@@ -281,6 +283,7 @@ pub struct ExceptionNode {
     pub range: Range,
     pub identifier: IdentifierNode,
     pub fields: Vec<FieldNode>,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug)]
@@ -289,6 +292,7 @@ pub struct ServiceNode {
     pub identifier: IdentifierNode,
     pub extends: Option<IdentifierNode>,
     pub functions: Vec<FunctionNode>,
+    pub ext: Option<ExtNode>,
 }
 
 #[derive(Debug)]
