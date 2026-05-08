@@ -437,11 +437,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_typedef(&mut self) -> Option<TypedefNode> {
-        // Typedef ::= 'typedef' DefinitionType Identifier
+        // Typedef ::= 'typedef' FieldType Identifier
 
         let start = self.peek_next_token().range().start;
         expect_token!(self, Typedef, "'typedef'");
-        let definition_type = self.parse_definition_type()?;
+        let definition_type = self.parse_field_type()?;
         let identifier = self.parse_identifier()?;
         let end = self.prev_token().unwrap_or_default().range().end;
 
@@ -886,5 +886,29 @@ mod tests {
             println!("  {:?}: {}", error.range, error.message);
         }
         assert!(!errors.is_empty());
+    }
+
+    #[test]
+    fn parse_typedef_identifier_source_type() {
+        let content = r#"
+            struct ListOperationMetricExportModelItem {
+                1: required i64 id,
+            }
+
+            typedef ListOperationMetricExportModelItem ListOperationMetricExportAgentItem
+
+            struct ListOperationMetricExportAgentResponse {
+                1: required list<ListOperationMetricExportAgentItem> Items,
+            }
+        "#
+        .chars()
+        .collect::<Vec<_>>();
+
+        let (_document, errors) = Parser::new(&content).parse();
+        assert!(
+            errors.is_empty(),
+            "unexpected parser errors: {:?}",
+            errors.iter().map(|e| e.message.clone()).collect::<Vec<_>>()
+        );
     }
 }
