@@ -1,6 +1,6 @@
 [package]
 name = "thrift-ls"
-version = "0.1.8"
+version = "0.1.9"
 authors = ["ocfbnj"]
 edition = "2021"
 description = "A language server for Thrift."
@@ -46,6 +46,7 @@ tokio = { version = "1.44.1", features = [
     "io-std",
     "io-util",
     "sync",
+    "time",
 ] }
 
 [package.metadata.wasm-pack.profile.release]

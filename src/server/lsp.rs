@@ -365,6 +365,7 @@ impl MessageReader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn reads_buffered_messages_and_stops_at_eof() {
@@ -374,10 +375,12 @@ mod tests {
         reader.buffer.extend_from_slice(frame.repeat(2).as_bytes());
         let (mut input, _sender) = tokio::io::duplex(64);
         for _ in 0..2 {
-            assert_eq!(
-                reader.read_message(&mut input).await.unwrap().method,
-                "initialized"
-            );
+            let message =
+                tokio::time::timeout(Duration::from_secs(1), reader.read_message(&mut input))
+                    .await
+                    .expect("buffered message read timed out")
+                    .unwrap();
+            assert_eq!(message.method, "initialized");
         }
 
         for bytes in [b"".as_slice(), b"Content-Length: 100\r\n\r\n{"] {
