@@ -301,10 +301,15 @@ impl MessageReader {
         reader: &mut R,
     ) -> io::Result<BaseMessage> {
         loop {
-            reader.read_buf(&mut self.buffer).await?;
-
             if let Some(message) = self.try_decode_message()? {
                 return Ok(message);
+            }
+
+            if reader.read_buf(&mut self.buffer).await? == 0 {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "LSP input closed",
+                ));
             }
         }
     }
@@ -354,6 +359,38 @@ impl MessageReader {
         };
 
         Ok(Some(message))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn reads_buffered_messages_and_stops_at_eof() {
+        let body = r#"{"jsonrpc":"2.0","method":"initialized"}"#;
+        let frame = format!("Content-Length: {}\r\n\r\n{}", body.len(), body);
+        let mut reader = MessageReader::new();
+        reader.buffer.extend_from_slice(frame.repeat(2).as_bytes());
+        let (mut input, _sender) = tokio::io::duplex(64);
+        for _ in 0..2 {
+            assert_eq!(
+                reader.read_message(&mut input).await.unwrap().method,
+                "initialized"
+            );
+        }
+
+        for bytes in [b"".as_slice(), b"Content-Length: 100\r\n\r\n{"] {
+            let mut input = bytes;
+            assert_eq!(
+                MessageReader::new()
+                    .read_message(&mut input)
+                    .await
+                    .unwrap_err()
+                    .kind(),
+                io::ErrorKind::UnexpectedEof,
+            );
+        }
     }
 }
 
